@@ -65,7 +65,7 @@ with col_interactiva:
         # Inicializar el modelo y el historial del chat si no existen en la sesión
         if "chat" not in st.session_state:
             # Iniciamos una conversación limpia con el modelo de Gemini
-            model = genai.GenerativeModel("models/gemini-1.5-pro")
+            model = genai.GenerativeModel("models/gemini-1.5-flash")
             
             # Contexto inicial para que actúe como un CFO socrático riguroso
             contexto_cfo = """
