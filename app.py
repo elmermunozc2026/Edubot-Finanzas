@@ -61,23 +61,43 @@ with col_interactiva:
     
     with tab1:
         st.subheader("Discusión de Casos con el CFO")
-        if "api_key" in st.session_state:
-            chat_container = st.container(height=400)
-            with chat_container:
-                for msg in st.session_state.messages:
-                    with st.chat_message(msg["role"]):
-                        st.write(msg["content"])
+        
+        # Inicializar el modelo y el historial del chat si no existen en la sesión
+        if "chat" not in st.session_state:
+            # Iniciamos una conversación limpia con el modelo de Gemini
+            model = genai.GenerativeModel("gemini-1.5-pro")
             
-            if user_input := st.chat_input("Escribe tu análisis al CFO..."):
-                with chat_container:
-                    st.chat_message("user").write(user_input)
-                st.session_state.messages.append({"role": "user", "content": user_input})
-                
-                with st.spinner("El CFO evalúa tu respuesta..."):
-                    res = st.session_state.chat.send_message(user_input)
-                with chat_container:
-                    st.chat_message("assistant").write(res.text)
-                st.session_state.messages.append({"role": "assistant", "content": res.text})
+            # Contexto inicial para que actúe como un CFO socrático riguroso
+            contexto_cfo = """
+            Eres el CFO de la Compañía Minera Los Andes SAC. Tu rol es guiar socráticamente al estudiante (no le des las respuestas directas).
+            Hazle preguntas difíciles sobre el deterioro de la liquidez en el Año 2, el incremento masivo del inventario inmovilizado,
+            los paros viales, y el impacto del margen neto por el diésel. Desafía sus análisis financieros.
+            """
+            st.session_state.chat = model.start_chat(history=[])
+            # Mensaje de bienvenida inicial
+            st.session_state.messages = [
+                {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. Veo que nuestro inventario se disparó a $105K y la caja cayó a $15K en el Año 2 debido a los paros viales. ¿Qué medidas de capital de trabajo me propones para mitigar este shock de liquidez?"}
+            ]
+
+        # Contenedor visual del chat
+        chat_container = st.container(height=400)
+        with chat_container:
+            for msg in st.session_state.messages:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+        
+        # Entrada de texto del usuario
+        if user_input := st.chat_input("Escribe tu análisis al CFO..."):
+            with chat_container:
+                st.chat_message("user").write(user_input)
+            st.session_state.messages.append({"role": "user", "content": user_input})
+            
+            with st.spinner("El CFO evalúa tu respuesta..."):
+                # Se envía el mensaje al chat seguro configurado con st.secrets
+                res = st.session_state.chat.send_message(user_input)
+            with chat_container:
+                st.chat_message("assistant").write(res.text)
+            st.session_state.messages.append({"role": "assistant", "content": res.text})
 
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
