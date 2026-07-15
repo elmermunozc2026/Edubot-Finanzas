@@ -30,7 +30,7 @@ if "chat" not in st.session_state:
     try:
         # Usamos el identificador estándar recomendado por el SDK de Google
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash-latest", 
+            model_name="gemini-3.5-flash", 
             system_instruction=SYSTEM_INSTRUCTIONS
         )
         st.session_state.chat = model.start_chat(history=[])
