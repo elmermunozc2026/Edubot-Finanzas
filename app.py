@@ -12,14 +12,13 @@ st.set_page_config(
 
 # ACCESO SEGURO A LA API KEY DESDE LOS SECRETS DE STREAMLIT
 try:
-    # Busca la clave guardada en la "caja fuerte" de Streamlit
     api_key_segura = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key_segura)
 except Exception as e:
     st.error("Error de configuración: No se encontró la API Key en los secretos del servidor.")
 
 # Nombre del estudiante para el reporte
-nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value="Estudiante de Analisis Financiero - Minería")
+nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value="Elmer Muñoz")
 
 # SYSTEM INSTRUCTIONS DEL TUTOR
 SYSTEM_INSTRUCTIONS = """
@@ -29,9 +28,9 @@ Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía
 # Inicialización de un único estado de chat seguro
 if "chat" not in st.session_state:
     try:
-        # Se usa el nombre oficial correcto con prefijo "models/"
+        # Usamos el identificador estándar recomendado por el SDK de Google
         model = genai.GenerativeModel(
-            model_name="models/gemini-1.5-flash", 
+            model_name="gemini-1.5-flash", 
             system_instruction=SYSTEM_INSTRUCTIONS
         )
         st.session_state.chat = model.start_chat(history=[])
@@ -42,7 +41,7 @@ if "chat" not in st.session_state:
         ]
         st.session_state.preguntas_examen = None
     except Exception as e:
-        st.error(f"Error al inicializar el modelo: {e}")
+        st.error(f"Error al inicializar el modelo de Gemini: {e}")
 
 # DISTRIBUCIÓN DE PANTALLA: PANELES Y PESTAÑAS
 col_datos, col_interactiva = st.columns([0.4, 0.6])
@@ -61,7 +60,6 @@ with col_datos:
         st.write("Año 2: Ventas: $550,000 | Costo de Ventas: $445,000 | Utilidad Neta: $24,500")
 
 with col_interactiva:
-    # Separamos en dos pestañas la interacción
     tab1, tab2 = st.tabs(["💬 Chat Socrático", "📝 Examen Personalizado"])
     
     with tab1:
@@ -81,11 +79,14 @@ with col_interactiva:
                 st.chat_message("user").write(user_input)
             st.session_state.messages.append({"role": "user", "content": user_input})
             
-            with st.spinner("El CFO evalúa tu respuesta..."):
-                res = st.session_state.chat.send_message(user_input)
-            with chat_container:
-                st.chat_message("assistant").write(res.text)
-            st.session_state.messages.append({"role": "assistant", "content": res.text})
+            try:
+                with st.spinner("El CFO evalúa tu respuesta..."):
+                    res = st.session_state.chat.send_message(user_input)
+                with chat_container:
+                    st.chat_message("assistant").write(res.text)
+                st.session_state.messages.append({"role": "assistant", "content": res.text})
+            except Exception as e:
+                st.error(f"Error al enviar mensaje a Gemini: {e}")
 
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
@@ -115,7 +116,7 @@ with col_interactiva:
                     st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
                     st.success("¡Examen generado exitosamente! Responde abajo.")
             except Exception as e:
-                st.error("Error al estructurar la evaluación. Inténtalo de nuevo.")
+                st.error(f"Error al estructurar la evaluación: {e}")
         
         # Si las preguntas ya fueron cargadas en la sesión, las pintamos como un formulario
         if st.session_state.get("preguntas_examen"):
