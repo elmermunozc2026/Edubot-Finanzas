@@ -17,6 +17,89 @@ try:
 except Exception as e:
     st.error("Error de configuración: No se encontró la API Key en los secretos del servidor.")
 
+# ==========================================
+#      CONTROL DE ACCESO (LOGIN)
+# ==========================================
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+
+if not st.session_state.autenticado:
+    st.title("🔐 Acceso Autorizado - Edubot Finanzas")
+    st.write("Por favor, introduce tus credenciales de estudiante para ingresar a la plataforma de evaluación.")
+    
+    # Formulario de Login
+    with st.form("formulario_login"):
+        correo_input = st.text_input("Correo electrónico institucional:").strip().lower()
+        password_input = st.text_input("Contraseña temporal del curso:", type="password")
+        boton_ingresar = st.form_submit_button("Ingresar al Edubot")
+        
+        if boton_ingresar:
+            # Extraer credenciales válidas de los Secrets
+            password_valida = st.secrets["accesos_alumnos"]["password_temporal"]
+            correos_validos = [c.lower() for c in st.secrets["accesos_alumnos"]["correos_autorizados"]]
+            
+            if correo_input in correos_validos and password_input == password_valida:
+                st.session_state.autenticado = True
+                st.session_state.correo_usuario = correo_input
+                # Extraemos un nombre por defecto a partir del correo para el reporte
+                nombre_defecto = correo_input.split("@")[0].replace(".", " ").title()
+                st.session_state.nombre_estudiante = nombre_defecto
+                st.success("¡Acceso concedido!")
+                st.rerun()  # Recarga la app para mostrar el contenido protegido
+            else:
+                st.error("El correo no está registrado como autorizado o la contraseña es incorrecta.")
+                
+    st.stop() # Detiene la ejecución del resto del código si no está autenticado
+
+# ==========================================
+#      CÓDIGO PRINCIPAL DEL EDUBOT
+#      (Solo se ejecuta si st.session_state.autenticado es True)
+# ==========================================
+
+# El nombre del estudiante ahora se inicializa con el correo validado
+nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
+
+# SYSTEM INSTRUCTIONS DEL TUTOR
+SYSTEM_INSTRUCTIONS = """
+Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
+"""
+
+# Inicialización del chat con gemini-3.5-flash
+if "chat" not in st.session_state:
+    try:
+        model = genai.GenerativeModel(
+            model_name="gemini-3.5-flash", 
+            system_instruction=SYSTEM_INSTRUCTIONS
+        )
+        st.session_state.chat = model.start_chat(history=[])
+        
+        # Mensaje de bienvenida inicial personalizado
+        st.session_state.messages = [
+            {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. Veo que nuestro inventario se disparó a $105K y la caja cayó a $15K en el Año 2 debido a los paros viales. ¿Qué medidas de capital de trabajo me propones para mitigar este shock de liquidez?"}
+        ]
+        st.session_state.preguntas_examen = None
+    except Exception as e:
+        st.error(f"Error al inicializar el modelo de Gemini: {e}")
+
+import streamlit as st
+import google.generativeai as genai
+import pandas as pd
+import json
+
+# CONFIGURACIÓN DE LA PÁGINA
+st.set_page_config(
+    page_title="CFO Edubot - Evaluación Dinámica",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ACCESO SEGURO A LA API KEY DESDE LOS SECRETS DE STREAMLIT
+try:
+    api_key_segura = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key_segura)
+except Exception as e:
+    st.error("Error de configuración: No se encontró la API Key en los secretos del servidor.")
+
 # Nombre del estudiante para el reporte
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value="Elmer Muñoz")
 
