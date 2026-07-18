@@ -54,6 +54,7 @@ if not st.session_state.autenticado:
 #      CÓDIGO PRINCIPAL DEL EDUBOT
 # ==========================================
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
+
 if st.sidebar.button("🔄 Cambiar de Caso (Reiniciar)"):
     # Eliminamos las variables clave para forzar la reinicialización
     st.session_state.pop("caso_seleccionado", None)
