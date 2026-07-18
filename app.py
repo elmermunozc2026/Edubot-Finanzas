@@ -55,13 +55,6 @@ if not st.session_state.autenticado:
 # ==========================================
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
 
-if st.sidebar.button("🔄 Cambiar de Caso (Reiniciar)"):
-    # Eliminamos las variables clave para forzar la reinicialización
-    st.session_state.pop("caso_seleccionado", None)
-    st.session_state.pop("chat", None)
-    st.session_state.pop("messages", None)
-    st.session_state.pop("preguntas_examen", None)
-    st.rerun()
     
 # BANCO DE CASOS ALEATORIOS
 CASOS_MINEROS = [
@@ -122,6 +115,14 @@ if "chat" not in st.session_state:
 # ==========================================
 # DISTRIBUCIÓN DE PANTALLA: PANELES Y PESTAÑAS
 # ==========================================
+if st.sidebar.button("🔄 Cambiar de Caso (Reiniciar)"):
+    # Eliminamos las variables clave para forzar la reinicialización
+    st.session_state.pop("caso_seleccionado", None)
+    st.session_state.pop("chat", None)
+    st.session_state.pop("messages", None)
+    st.session_state.pop("preguntas_examen", None)
+    st.rerun()
+    
 col_datos, col_interactiva = st.columns([0.4, 0.6])
 
 with col_datos:
