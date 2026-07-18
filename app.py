@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 import json
+import random  # <-- 1. IMPORTAR LIBRERÍA DE ALEATORIEDAD
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(
@@ -58,12 +59,61 @@ if not st.session_state.autenticado:
 
 # El nombre del estudiante ahora se inicializa con el correo validado
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
+# 2. DEFINIR BANCO DE CASOS ALEATORIOS
+CASOS_MINEROS = [
+    {
+        "titulo": "Caso A: Paros Viales e Inmovilización",
+        "entorno": "Volatilidad de metales, 25 días de paro vial, y shock de precios de diésel por conflictos geopolíticos.",
+        "balance_a1": "Act. Corriente: $180,000 (Efec: $45K, Inv: $65K) | Pas. Corriente: $95,000",
+        "balance_a2": "Act. Corriente: $210,000 (Efec: $15K, Inv inmovilizado: $105K) | Pas. Corriente: $165,000",
+        "resultados_a1": "Ventas: $520,000 | Costo de Ventas: $310,000 | Utilidad Neta: $85,000",
+        "resultados_a2": "Ventas: $550,000 | Costo de Ventas: $445,000 | Utilidad Neta: $24,500",
+        "mensaje_inicial": "Veo que nuestro inventario se disparó a $105K y la caja cayó a $15K en el Año 2 debido a los paros viales. ¿Qué medidas de capital de trabajo me propones para mitigar este shock de liquidez?"
+    },
+    {
+        "titulo": "Caso B: Caída de Precios del Cobre y Sobreproducción",
+        "entorno": "Desaceleración de la demanda asiática, caída del 18% en el precio del cobre y acumulación de concentrado en almacén.",
+        "balance_a1": "Act. Corriente: $200,000 (Efec: $60K, Inv: $50K) | Pas. Corriente: $80,000",
+        "balance_a2": "Act. Corriente: $195,000 (Efec: $10K, Inv inmovilizado: $120K) | Pas. Corriente: $110,000",
+        "resultados_a1": "Ventas: $600,000 | Costo de Ventas: $350,000 | Utilidad Neta: $110,000",
+        "resultados_a2": "Ventas: $480,000 | Costo de Ventas: $410,000 | Utilidad Neta: $12,000",
+        "mensaje_inicial": "El precio del cobre se desplomó y nos quedamos con stock masivo sobrevalorado. La caja bajó a $10K y el inventario subió a $120K. ¿Cómo reestructurarías el ciclo de conversión de efectivo ante este escenario?"
+    },
+    {
+        "titulo": "Caso C: Retraso en Permisos Ambientales y Costos de Mantenimiento",
+        "entorno": "Demoras burocráticas en la expansión del tajo abierto, paralización temporal de planta y penalizaciones contractuales.",
+        "balance_a1": "Act. Corriente: $150,000 (Efec: $40K, Inv: $40K) | Pas. Corriente: $70,000",
+        "balance_a2": "Act. Corriente: $160,000 (Efec: $8K, Inv acumulado: $85K) | Pas. Corriente: $130,000",
+        "resultados_a1": "Ventas: $450,000 | Costo de Ventas: $280,000 | Utilidad Neta: $65,000",
+        "resultados_a2": "Ventas: $390,000 | Costo de Ventas: $360,000 | Utilidad Neta: -$5,000",
+        "mensaje_inicial": "La paralización operativa nos está costando caro: registramos pérdida neta y la caja está en niveles críticos de $8K. ¿Qué financiamiento de corto plazo o estrategia con proveedores sugieres?"
+    }
+]
 
 # SYSTEM INSTRUCTIONS DEL TUTOR
 SYSTEM_INSTRUCTIONS = """
 Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
 """
+# 3. GUARDAR EL CASO SELECCIONADO EN EL SESSION_STATE
+if "caso_seleccionado" not in st.session_state:
+    st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
 
+if "chat" not in st.session_state:
+    try:
+        model = genai.GenerativeModel(
+            model_name="gemini-3.5-flash", 
+            system_instruction=SYSTEM_INSTRUCTIONS
+        )
+        st.session_state.chat = model.start_chat(history=[])
+        
+        # 4. USAR EL MENSAJE DINÁMICO EN LA LÍNEA 78
+        caso = st.session_state.caso_seleccionado
+        st.session_state.messages = [
+            {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso['mensaje_inicial']}"}
+        ]
+        st.session_state.preguntas_examen = None
+    except Exception as e:
+        st.error(f"Error al inicializar el modelo de Gemini: {e}")
 # Inicialización del chat con gemini-3.5-flash
 if "chat" not in st.session_state:
     try:
@@ -131,16 +181,20 @@ col_datos, col_interactiva = st.columns([0.4, 0.6])
 
 with col_datos:
     st.title("📊 Estados Financieros")
-    with st.expander("💼 Caso: Compañía Minera Los Andes SAC", expanded=True):
-        st.write("**Entorno:** Volatilidad de metales, 25 días de paro vial, y shock de precios de diésel por conflictos geopolíticos.")
+    
+    # 5. RENDERIZAR LOS DATOS DINÁMICAMENTE EN EL PANEL IZQUIERDO
+    caso_actual = st.session_state.caso_seleccionado
+    
+    with st.expander(f"💼 {caso_actual['titulo']}", expanded=True):
+        st.write(f"**Entorno:** {caso_actual['entorno']}")
         
     with st.expander("📉 Balance General Corto (Miles USD)"):
-        st.write("Año 1: Act. Corriente: $180,000 (Efec: $45K, Inv: $65K) | Pas. Corriente: $95,000")
-        st.write("Año 2: Act. Corriente: $210,000 (Efec: $15K, Inv inmovilizado: $105K) | Pas. Corriente: $165,000")
+        st.write(f"Año 1: {caso_actual['balance_a1']}")
+        st.write(f"Año 2: {caso_actual['balance_a2']}")
         
     with st.expander("📈 Estado de Resultados (Miles USD)"):
-        st.write("Año 1: Ventas: $520,000 | Costo de Ventas: $310,000 | Utilidad Neta: $85,000")
-        st.write("Año 2: Ventas: $550,000 | Costo de Ventas: $445,000 | Utilidad Neta: $24,500")
+        st.write(f"Año 1: {caso_actual['resultados_a1']}")
+        st.write(f"Año 2: {caso_actual['resultados_a2']}")
 
 with col_interactiva:
     tab1, tab2 = st.tabs(["💬 Chat Socrático", "📝 Examen Personalizado"])
