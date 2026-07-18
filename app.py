@@ -55,7 +55,6 @@ if not st.session_state.autenticado:
 # ==========================================
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
 
-    
 # BANCO DE CASOS ALEATORIOS
 CASOS_MINEROS = [
     {
@@ -86,6 +85,41 @@ CASOS_MINEROS = [
         "mensaje_inicial": "La paralización operativa nos está costando caro: registramos pérdida neta y la caja está en niveles críticos de $8K. ¿Qué financiamiento de corto plazo o estrategia con proveedores sugieres?"
     }
 ]
+
+# 1. EL BOTÓN DE REINICIO DEBE IR AQUÍ (DENTRO DE LA BARRA LATERAL Y ANTES DE LA ASIGNACIÓN)
+with st.sidebar:
+    st.write("---")
+    if st.button("🔄 Cambiar de Caso (Reiniciar)", use_container_width=True):
+        st.session_state.pop("caso_seleccionado", None)
+        st.session_state.pop("chat", None)
+        st.session_state.pop("messages", None)
+        st.session_state.pop("preguntas_examen", None)
+        st.rerun()
+
+SYSTEM_INSTRUCTIONS = """
+Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
+"""
+
+# 2. SELECCIÓN ALEATORIA DEL CASO
+if "caso_seleccionado" not in st.session_state:
+    st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
+
+# 3. CREACIÓN DEL CHAT CON EL CASO SELECCIONADO ACTUALMENTE
+if "chat" not in st.session_state:
+    try:
+        model = genai.GenerativeModel(
+            model_name="gemini-3.5-flash", 
+            system_instruction=SYSTEM_INSTRUCTIONS
+        )
+        st.session_state.chat = model.start_chat(history=[])
+        
+        caso = st.session_state.caso_seleccionado
+        st.session_state.messages = [
+            {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso['mensaje_inicial']}"}
+        ]
+        st.session_state.preguntas_examen = None
+    except Exception as e:
+        st.error(f"Error al inicializar el modelo de Gemini: {e}")
 
 SYSTEM_INSTRUCTIONS = """
 Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
