@@ -116,7 +116,7 @@ if "caso_seleccionado" not in st.session_state:
 if "chat" not in st.session_state:
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-1.0-pro-001", 
+            model_name="gemini-1.5-flash", 
             system_instruction=SYSTEM_INSTRUCTIONS
         )
         st.session_state.chat = model.start_chat(history=[])
