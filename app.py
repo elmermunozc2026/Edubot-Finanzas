@@ -112,9 +112,10 @@ with st.sidebar:
 if "caso_seleccionado" not in st.session_state:
     st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
 
-# INICIALIZACIÓN DEL CHAT DE GEMINI CON EL MODELO CORRECTO
-if "chat" not in st.session_state:
+# INICIALIZACIÓN DEL MODELO DE GEMINI Y MENSAJE INICIAL
+if "messages" not in st.session_state:
     try:
+       # Inicializamos el modelo de forma directa y limpia
         model = genai.GenerativeModel(
             model_name="gemini-1.5-flash", 
             system_instruction=SYSTEM_INSTRUCTIONS
