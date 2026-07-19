@@ -114,12 +114,14 @@ if "caso_seleccionado" not in st.session_state:
 
 # INICIALIZACIÓN DEL CHAT DE GEMINI CON EL MODELO CORRECTO
 if "chat" not in st.session_state:
-    try:
-         model = genai.GenerativeModel(
+   try:
+        model = genai.GenerativeModel(
             model_name="gemini-pro", 
             system_instruction=SYSTEM_INSTRUCTIONS
         )
         st.session_state.chat = model.start_chat(history=[])
+    except Exception as e:
+        st.error(f"Error al inicializar el modelo: {e}")
         
         caso = st.session_state.caso_seleccionado
         st.session_state.messages = [
