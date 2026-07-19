@@ -1,10 +1,5 @@
 import streamlit as st
 import google.generativeai as genai
-# Forzamos la versión v1 de la API antes de configurar la clave
-genai.api_v1_level = True 
-
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-
 import pandas as pd
 import json
 import random
@@ -17,6 +12,9 @@ st.set_page_config(
     layout="wide", 
     initial_sidebar_state="expanded"
 )
+
+# FORZAMOS LA VERSIÓN V1 ESTABLE PARA EVITAR ERRORES 404 DE V1BETA
+genai.api_v1_level = True 
 
 # ACCESO SEGURO A LA API KEY DESDE LOS SECRETS DE STREAMLIT
 try:
@@ -98,12 +96,11 @@ Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía
 # ==========================================
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
 
-# CONTROL DEL BOTÓN DE REINICIO (SÓLO AQUÍ EN LA BARRA LATERAL)
+# CONTROL DEL BOTÓN DE REINICIO
 with st.sidebar:
     st.write("---")
     if st.button("🔄 Cambiar de Caso (Reiniciar)", use_container_width=True):
         st.session_state.pop("caso_seleccionado", None)
-        st.session_state.pop("chat", None)
         st.session_state.pop("messages", None)
         st.session_state.pop("preguntas_examen", None)
         st.rerun()
@@ -121,7 +118,7 @@ if "messages" not in st.session_state:
     st.session_state.preguntas_examen = None
 
 # ==========================================
-#    DISTRIBUCIÓN DE PANTALLA: PANELES
+#     DISTRIBUCIÓN DE PANTALLA: PANELES
 # ==========================================
 col_datos, col_interactiva = st.columns([0.4, 0.6])
 
@@ -145,44 +142,46 @@ with col_interactiva:
     tab1, tab2 = st.tabs(["💬 Chat Socrático", "📝 Examen Personalizado"])
     
     with tab1:
-    st.subheader("Discusión de Casos con el CFO")
-    
-    # 1. Contenedor exclusivo para el historial de mensajes
-    chat_container = st.container(height=400)
-    with chat_container:
-        if "messages" in st.session_state:
-            for msg in st.session_state.messages:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
-
-    # 2. El Input FUERA del bloque "with chat_container:"
-    if user_input := st.chat_input("Escribe tu análisis al CFO..."):
-        # Mandamos el mensaje del usuario al contenedor visualmente
-        with chat_container:
-            st.chat_message("user").write(user_input)
-            
-        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.subheader("Discusión de Casos con el CFO")
         
-        try:
-            with st.spinner("El CFO evalúa tu respuesta..."):
-                model = genai.GenerativeModel("gemini-pro")
-                
-                prompt_completo = f"CONTEXTO DEL SISTEMA:\n{SYSTEM_INSTRUCTIONS}\n\nHISTORIAL DE LA CONVERSACIÓN:\n"
+        # 1. Contenedor exclusivo para el historial de mensajes
+        chat_container = st.container(height=400)
+        with chat_container:
+            if "messages" in st.session_state:
                 for msg in st.session_state.messages:
-                    rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
-                    prompt_completo += f"{rol}: {msg['content']}\n"
-                prompt_completo += "\nCFO (Tú): Responde al último comentario del estudiante de forma socrática."
-                
-                res = model.generate_content(prompt_completo)
-                
-            # Mandamos la respuesta del asistente al contenedor visualmente
+                    with st.chat_message(msg["role"]):
+                        st.write(msg["content"])
+
+        # 2. El Input FUERA del bloque "with chat_container:"
+        if user_input := st.chat_input("Escribe tu análisis al CFO..."):
             with chat_container:
-                st.chat_message("assistant").write(res.text)
+                st.chat_message("user").write(user_input)
                 
-            st.session_state.messages.append({"role": "assistant", "content": res.text})
+            st.session_state.messages.append({"role": "user", "content": user_input})
             
-        except Exception as e:
-            st.error(f"Error al enviar mensaje a Gemini: {e}")
+            try:
+                with st.spinner("El CFO evalúa tu respuesta..."):
+                    model = genai.GenerativeModel(
+                        model_name="gemini-1.5-flash",
+                        system_instruction=SYSTEM_INSTRUCTIONS
+                    )
+                    
+                    prompt_completo = "HISTORIAL DE LA CONVERSACIÓN:\n"
+                    for msg in st.session_state.messages:
+                        rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
+                        prompt_completo += f"{rol}: {msg['content']}\n"
+                    prompt_completo += "\nCFO (Tú): Responde al último comentario del estudiante de forma socrática."
+                    
+                    res = model.generate_content(prompt_completo)
+                    
+                with chat_container:
+                    st.chat_message("assistant").write(res.text)
+                    
+                st.session_state.messages.append({"role": "assistant", "content": res.text})
+                
+            except Exception as e:
+                st.error(f"Error al enviar mensaje a Gemini: {e}")
+                
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
         st.write("El CFO generará preguntas de opción múltiple únicas basándose en tu desempeño en el chat.")
@@ -193,20 +192,19 @@ with col_interactiva:
             {"preguntas": [{"id": 1, "pregunta": "Escribe aquí la pregunta basada en el balance o entorno minero...", "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"], "correcta": "La opción exacta escrita de la misma forma"}]}
             """
             try:
-            with st.spinner("El CFO está redactando tus preguntas..."):
-                # Inicializas el modelo para la evaluación
-                model_eval = genai.GenerativeModel("gemini-pro")
-                
-                # Opcional: Puedes sumar el historial de mensajes al prompt para que realmente sea personalizado
-                historial_contexto = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
-                prompt_final = f"{prompt_evaluacion}\n\nHistorial del chat para adaptarlo:\n{historial_contexto}"
-                
-                # Cambiado de .chat.send_message() a .generate_content()
-                response_json = model_eval.generate_content(prompt_final).text
-                
-                response_json = response_json.replace("```json", "").replace("```", "").strip()
-                st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
-                st.success("¡Examen generado exitosamente! Responde abajo.")
+                with st.spinner("El CFO está redactando tus preguntas..."):
+                    model_eval = genai.GenerativeModel(
+                        model_name="gemini-1.5-flash",
+                        system_instruction=SYSTEM_INSTRUCTIONS
+                    )
+                    
+                    historial_contexto = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
+                    prompt_final = f"{prompt_evaluacion}\n\nHistorial del chat para adaptarlo:\n{historial_contexto}"
+                    
+                    response_json = model_eval.generate_content(prompt_final).text
+                    response_json = response_json.replace("```json", "").replace("```", "").strip()
+                    st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
+                    st.success("¡Examen generado exitosamente! Responde abajo.")
             except Exception as e:
                 st.error(f"Error al estructurar la evaluación: {e}")
         
