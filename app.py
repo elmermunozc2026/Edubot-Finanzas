@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+import requests
 import pandas as pd
 import json
 import random
@@ -14,11 +14,43 @@ st.set_page_config(
 )
 
 # ACCESO SEGURO A LA API KEY DESDE LOS SECRETS DE STREAMLIT
-try:
+if "GEMINI_API_KEY" in st.secrets:
     api_key_segura = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key_segura)
-except Exception as e:
+else:
     st.error("Error de configuración: No se encontró la API Key en los secretos del servidor.")
+    st.stop()
+
+# ==========================================
+#      FUNCIÓN DE CONEXIÓN DIRECTA (API REST)
+# ==========================================
+def llamar_gemini_api(prompt_texto):
+    """Realiza una petición HTTP POST directa a la API de Gemini v1 bypassando la librería local."""
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
+    headers = {'Content-Type': 'application/json'}
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt_texto}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7
+        }
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
+    
+    if response.status_code == 200:
+        resultado = response.json()
+        try:
+            # Extrae el texto de la respuesta estructurada de Google
+            return resultado['candidates'][0]['content']['parts'][0]['text']
+        except (KeyError, IndexError):
+            raise Exception("La API respondió pero el formato del contenido no es el esperado.")
+    else:
+        raise Exception(f"Error HTTP {response.status_code}: {response.text}")
 
 # ==========================================
 #      CONTROL DE ACCESO (LOGIN)
@@ -83,7 +115,6 @@ CASOS_MINEROS = [
     }
 ]
 
-# INSTRUCCIONES DEL SISTEMA (INYECTADAS DIRECTAMENTE EN EL PROMPT)
 SYSTEM_INSTRUCTIONS = """
 Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
 """
@@ -93,7 +124,6 @@ Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía
 # ==========================================
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
 
-# CONTROL DEL BOTÓN DE REINICIO
 with st.sidebar:
     st.write("---")
     if st.button("🔄 Cambiar de Caso (Reiniciar)", use_container_width=True):
@@ -102,11 +132,9 @@ with st.sidebar:
         st.session_state.pop("preguntas_examen", None)
         st.rerun()
 
-# SELECCIÓN ÚNICA Y PERSISTENTE DEL CASO ALEATORIO
 if "caso_seleccionado" not in st.session_state:
     st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
 
-# INICIALIZACIÓN DE MENSAJES Y CASO
 if "messages" not in st.session_state:
     caso = st.session_state.caso_seleccionado
     st.session_state.messages = [
@@ -121,7 +149,6 @@ col_datos, col_interactiva = st.columns([0.4, 0.6])
 
 with col_datos:
     st.title("📊 Estados Financieros")
-    
     caso_actual = st.session_state.caso_seleccionado
     
     with st.expander(f"💼 {caso_actual['titulo']}", expanded=True):
@@ -141,7 +168,6 @@ with col_interactiva:
     with tab1:
         st.subheader("Discusión de Casos con el CFO")
         
-        # 1. Contenedor exclusivo para el historial de mensajes
         chat_container = st.container(height=400)
         with chat_container:
             if "messages" in st.session_state:
@@ -149,7 +175,6 @@ with col_interactiva:
                     with st.chat_message(msg["role"]):
                         st.write(msg["content"])
 
-        # 2. El Input FUERA del bloque "with chat_container:"
         if user_input := st.chat_input("Escribe tu análisis al CFO..."):
             with chat_container:
                 st.chat_message("user").write(user_input)
@@ -158,26 +183,20 @@ with col_interactiva:
             
             try:
                 with st.spinner("El CFO evalúa tu respuesta..."):
-                    # Inicialización limpia sin system_instruction para asegurar compatibilidad v1beta
-                    model = genai.GenerativeModel(model_name="gemini-pro")
-                    
-                    # Consolidamos las instrucciones de rol y el historial en un solo prompt
-                    prompt_completo = f"""INSTRUCCIONES DE ROL:
-                    {SYSTEM_INSTRUCTIONS}
-                    
-                    HISTORIAL DE LA CONVERSACIÓN:
-                    """
+                    # Construcción manual del prompt consolidado
+                    prompt_completo = f"INSTRUCCIONES DE ROL:\n{SYSTEM_INSTRUCTIONS}\n\nHISTORIAL DE LA CONVERSACIÓN:\n"
                     for msg in st.session_state.messages:
                         rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
                         prompt_completo += f"{rol}: {msg['content']}\n"
                     prompt_completo += "\nCFO (Tú): Responde al último comentario del estudiante de forma socrática."
                     
-                    res = model.generate_content(prompt_completo)
+                    # Llamada HTTP directa
+                    respuesta_texto = llamar_gemini_api(prompt_completo)
                     
                 with chat_container:
-                    st.chat_message("assistant").write(res.text)
+                    st.chat_message("assistant").write(respuesta_texto)
                     
-                st.session_state.messages.append({"role": "assistant", "content": res.text})
+                st.session_state.messages.append({"role": "assistant", "content": respuesta_texto})
                 
             except Exception as e:
                 st.error(f"Error al enviar mensaje a Gemini: {e}")
@@ -193,13 +212,11 @@ with col_interactiva:
             """
             try:
                 with st.spinner("El CFO está redactando tus preguntas..."):
-                    # Inicialización limpia para el examen
-                    model_eval = genai.GenerativeModel(model_name="gemini-pro")
-                    
                     historial_contexto = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
                     prompt_final = f"{prompt_evaluacion}\n\nHistorial del chat para adaptarlo:\n{historial_contexto}"
                     
-                    response_json = model_eval.generate_content(prompt_final).text
+                    # Llamada HTTP directa
+                    response_json = llamar_gemini_api(prompt_final)
                     response_json = response_json.replace("```json", "").replace("```", "").strip()
                     st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
                     st.success("¡Examen generado exitosamente! Responde abajo.")
