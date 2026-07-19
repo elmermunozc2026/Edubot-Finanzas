@@ -112,23 +112,13 @@ with st.sidebar:
 if "caso_seleccionado" not in st.session_state:
     st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
 
-# INICIALIZACIÓN DEL MODELO DE GEMINI Y MENSAJE INICIAL
+# INICIALIZACIÓN DE MENSAJES Y CASO
 if "messages" not in st.session_state:
-    try:
-       # Inicializamos el modelo de forma directa y limpia
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash", 
-            system_instruction=SYSTEM_INSTRUCTIONS
-        )
-        st.session_state.chat = model.start_chat(history=[])
-        
-        caso = st.session_state.caso_seleccionado
-        st.session_state.messages = [
-            {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso['mensaje_inicial']}"}
-        ]
-        st.session_state.preguntas_examen = None
-    except Exception as e:
-        st.error(f"Error al inicializar el modelo: {e}")
+    caso = st.session_state.caso_seleccionado
+    st.session_state.messages = [
+        {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso['mensaje_inicial']}"}
+    ]
+    st.session_state.preguntas_examen = None
 
 # ==========================================
 #    DISTRIBUCIÓN DE PANTALLA: PANELES
@@ -164,30 +154,31 @@ with col_interactiva:
                     with st.chat_message(msg["role"]):
                         st.write(msg["content"])
         
-        if user_input := st.chat_input("Escribe tu análisis al CFO..."):
+       if user_input := st.chat_input("Escribe tu análisis al CFO..."):
             with chat_container:
                 st.chat_message("user").write(user_input)
             st.session_state.messages.append({"role": "user", "content": user_input})
             
             try:
                 with st.spinner("El CFO evalúa tu respuesta..."):
-                    # Volvemos a instanciar el objeto del modelo de forma ligera
-                    model = genai.GenerativeModel(
-                        model_name="gemini-1.5-flash", 
-                        system_instruction=SYSTEM_INSTRUCTIONS
-                    )
+                    # Usamos el modelo clásico universal que acepta tu servidor sin dar 404
+                    model = genai.GenerativeModel("gemini-pro")
                     
-                    # Construimos el historial de conversación en un formato de texto plano para Gemini
-                    historial_texto = ""
+                    # Estructuramos todo el contexto e instrucciones en un solo bloque de texto
+                    prompt_completo = f"""
+                    CONTEXTO DEL SISTEMA:
+                    {SYSTEM_INSTRUCTIONS}
+                    
+                    HISTORIAL DE LA CONVERSACIÓN:
+                    """
                     for msg in st.session_state.messages:
                         rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
-                        historial_texto += f"{rol}: {msg['content']}\n"
+                        prompt_completo += f"{rol}: {msg['content']}\n"
                     
-                    # Añadimos la petición final indicando que responda en su rol
-                    prompt_con_contexto = f"{historial_texto}\nCFO (Tú): Responde al último comentario del estudiante de forma socrática."
+                    prompt_completo += "\nCFO (Tú): Responde al último comentario del estudiante de forma socrática."
                     
-                    # Enviamos el contenido de forma directa, evitando el error de compatibilidad 404
-                    res = model.generate_content(prompt_con_contexto)
+                    # Llamada directa compatible con la API vieja de tu servidor
+                    res = model.generate_content(prompt_completo)
                     
                 with chat_container:
                     st.chat_message("assistant").write(res.text)
