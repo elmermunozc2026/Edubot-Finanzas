@@ -13,9 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# FORZAMOS LA VERSIÓN V1 ESTABLE PARA EVITAR ERRORES 404 DE V1BETA
-genai.api_v1_level = True 
-
 # ACCESO SEGURO A LA API KEY DESDE LOS SECRETS DE STREAMLIT
 try:
     api_key_segura = st.secrets["GEMINI_API_KEY"]
@@ -86,7 +83,7 @@ CASOS_MINEROS = [
     }
 ]
 
-# INSTRUCCIONES DEL SISTEMA PARA EL MODELO
+# INSTRUCCIONES DEL SISTEMA (INYECTADAS DIRECTAMENTE EN EL PROMPT)
 SYSTEM_INSTRUCTIONS = """
 Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
 """
@@ -161,12 +158,15 @@ with col_interactiva:
             
             try:
                 with st.spinner("El CFO evalúa tu respuesta..."):
-                    model = genai.GenerativeModel(
-                        model_name="gemini-1.5-flash",
-                        system_instruction=SYSTEM_INSTRUCTIONS
-                    )
+                    # Inicialización limpia sin system_instruction para asegurar compatibilidad v1beta
+                    model = genai.GenerativeModel(model_name="gemini-pro")
                     
-                    prompt_completo = "HISTORIAL DE LA CONVERSACIÓN:\n"
+                    # Consolidamos las instrucciones de rol y el historial en un solo prompt
+                    prompt_completo = f"""INSTRUCCIONES DE ROL:
+                    {SYSTEM_INSTRUCTIONS}
+                    
+                    HISTORIAL DE LA CONVERSACIÓN:
+                    """
                     for msg in st.session_state.messages:
                         rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
                         prompt_completo += f"{rol}: {msg['content']}\n"
@@ -193,10 +193,8 @@ with col_interactiva:
             """
             try:
                 with st.spinner("El CFO está redactando tus preguntas..."):
-                    model_eval = genai.GenerativeModel(
-                        model_name="gemini-1.5-flash",
-                        system_instruction=SYSTEM_INSTRUCTIONS
-                    )
+                    # Inicialización limpia para el examen
+                    model_eval = genai.GenerativeModel(model_name="gemini-pro")
                     
                     historial_contexto = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
                     prompt_final = f"{prompt_evaluacion}\n\nHistorial del chat para adaptarlo:\n{historial_contexto}"
