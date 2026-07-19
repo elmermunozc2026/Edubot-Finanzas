@@ -171,7 +171,24 @@ with col_interactiva:
             
             try:
                 with st.spinner("El CFO evalúa tu respuesta..."):
-                    res = st.session_state.chat.send_message(user_input)
+                    # Volvemos a instanciar el objeto del modelo de forma ligera
+                    model = genai.GenerativeModel(
+                        model_name="gemini-1.5-flash", 
+                        system_instruction=SYSTEM_INSTRUCTIONS
+                    )
+                    
+                    # Construimos el historial de conversación en un formato de texto plano para Gemini
+                    historial_texto = ""
+                    for msg in st.session_state.messages:
+                        rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
+                        historial_texto += f"{rol}: {msg['content']}\n"
+                    
+                    # Añadimos la petición final indicando que responda en su rol
+                    prompt_con_contexto = f"{historial_texto}\nCFO (Tú): Responde al último comentario del estudiante de forma socrática."
+                    
+                    # Enviamos el contenido de forma directa, evitando el error de compatibilidad 404
+                    res = model.generate_content(prompt_con_contexto)
+                    
                 with chat_container:
                     st.chat_message("assistant").write(res.text)
                 st.session_state.messages.append({"role": "assistant", "content": res.text})
