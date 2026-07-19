@@ -115,9 +115,8 @@ if "caso_seleccionado" not in st.session_state:
 # INICIALIZACIÓN DEL CHAT DE GEMINI CON EL MODELO CORRECTO
 if "chat" not in st.session_state:
     try:
-        # Se utiliza gemini-1.5-flash ya que gemini-3.5-flash no existe comercialmente
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash-latest", 
+         model = genai.GenerativeModel(
+            model_name="gemini-pro", 
             system_instruction=SYSTEM_INSTRUCTIONS
         )
         st.session_state.chat = model.start_chat(history=[])
