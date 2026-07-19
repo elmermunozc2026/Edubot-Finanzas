@@ -1,5 +1,10 @@
 import streamlit as st
 import google.generativeai as genai
+# Forzamos la versión v1 de la API antes de configurar la clave
+genai.api_v1_level = True 
+
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+
 import pandas as pd
 import json
 import random
