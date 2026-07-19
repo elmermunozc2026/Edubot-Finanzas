@@ -51,11 +51,8 @@ if not st.session_state.autenticado:
     st.stop()
 
 # ==========================================
-#      CÓDIGO PRINCIPAL DEL EDUBOT
+#      BANCO DE CASOS MINEROS
 # ==========================================
-nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
-
-# BANCO DE CASOS ALEATORIOS
 CASOS_MINEROS = [
     {
         "titulo": "Caso A: Paros Viales e Inmovilización",
@@ -86,7 +83,17 @@ CASOS_MINEROS = [
     }
 ]
 
-# 1. EL BOTÓN DE REINICIO DEBE IR AQUÍ (DENTRO DE LA BARRA LATERAL Y ANTES DE LA ASIGNACIÓN)
+# INSTRUCCIONES DEL SISTEMA PARA EL MODELO
+SYSTEM_INSTRUCTIONS = """
+Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
+"""
+
+# ==========================================
+#     CÓDIGO PRINCIPAL Y CONTROL DE SESIÓN
+# ==========================================
+nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
+
+# CONTROL DEL BOTÓN DE REINICIO (SÓLO AQUÍ EN LA BARRA LATERAL)
 with st.sidebar:
     st.write("---")
     if st.button("🔄 Cambiar de Caso (Reiniciar)", use_container_width=True):
@@ -96,44 +103,16 @@ with st.sidebar:
         st.session_state.pop("preguntas_examen", None)
         st.rerun()
 
-SYSTEM_INSTRUCTIONS = """
-Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
-"""
-
-# 2. SELECCIÓN ALEATORIA DEL CASO
+# SELECCIÓN ÚNICA Y PERSISTENTE DEL CASO ALEATORIO
 if "caso_seleccionado" not in st.session_state:
     st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
 
-# 3. CREACIÓN DEL CHAT CON EL CASO SELECCIONADO ACTUALMENTE
+# INICIALIZACIÓN DEL CHAT DE GEMINI CON EL MODELO CORRECTO
 if "chat" not in st.session_state:
     try:
+        # Se utiliza gemini-1.5-flash ya que gemini-3.5-flash no existe comercialmente
         model = genai.GenerativeModel(
-            model_name="gemini-3.5-flash", 
-            system_instruction=SYSTEM_INSTRUCTIONS
-        )
-        st.session_state.chat = model.start_chat(history=[])
-        
-        caso = st.session_state.caso_seleccionado
-        st.session_state.messages = [
-            {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso['mensaje_inicial']}"}
-        ]
-        st.session_state.preguntas_examen = None
-    except Exception as e:
-        st.error(f"Error al inicializar el modelo de Gemini: {e}")
-
-SYSTEM_INSTRUCTIONS = """
-Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
-"""
-
-# SELECCIÓN DEL CASO A LA PRIMERA ENTRADA (PERSISTENTE EN LA SESIÓN)
-if "caso_seleccionado" not in st.session_state:
-    st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
-
-# INICIALIZACIÓN DEL CHAT DE GEMINI Y MENSAJE ASISTENTE
-if "chat" not in st.session_state:
-    try:
-        model = genai.GenerativeModel(
-            model_name="gemini-3.5-flash", 
+            model_name="gemini-1.5-flash", 
             system_instruction=SYSTEM_INSTRUCTIONS
         )
         st.session_state.chat = model.start_chat(history=[])
@@ -147,16 +126,8 @@ if "chat" not in st.session_state:
         st.error(f"Error al inicializar el modelo de Gemini: {e}")
 
 # ==========================================
-# DISTRIBUCIÓN DE PANTALLA: PANELES Y PESTAÑAS
+#    DISTRIBUCIÓN DE PANTALLA: PANELES
 # ==========================================
-if st.sidebar.button("🔄 Cambiar de Caso (Reiniciar)"):
-    # Eliminamos las variables clave para forzar la reinicialización
-    st.session_state.pop("caso_seleccionado", None)
-    st.session_state.pop("chat", None)
-    st.session_state.pop("messages", None)
-    st.session_state.pop("preguntas_examen", None)
-    st.rerun()
-    
 col_datos, col_interactiva = st.columns([0.4, 0.6])
 
 with col_datos:
