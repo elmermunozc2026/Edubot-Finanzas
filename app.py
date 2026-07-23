@@ -34,7 +34,7 @@ if "nombre_estudiante" not in st.session_state:
 # ==========================================
 if not st.session_state.autenticado:
     st.title("🔐 Acceso Autorizado - Edubot Finanzas")
-    st.write("Por favor, introduce tus credenciales de estudiante para ingresar a la plataforma de evaluación.")
+    st.write("Por favor, introduce tus credenciales de estudiante para ingresar a la plataforma.")
     
     with st.form("formulario_login"):
         correo_input = st.text_input("Correo electrónico institucional:").strip().lower()
@@ -55,91 +55,9 @@ if not st.session_state.autenticado:
                 else:
                     st.error("El correo no está registrado como autorizado o la contraseña es incorrecta.")
             except Exception as e:
-                st.error("Error al verificar los secretos de autenticación.")
-    st.stop()  # DETIENE LA EJECUCIÓN AQUÍ HASTA QUE SE AUTENTIQUE
+                st.error("Error al verificar las credenciales.")
+    st.stop()
 
-# ==========================================
-#  FUNCIÓN DE CONEXIÓN ROBUSTA Y RÁPIDA
-# ==========================================
-def llamar_gemini_api(historial_mensajes):
-    """Llama a la API de Gemini con tiempo de espera ampliado y respuesta optimizada."""
-    
-    # Formatear el historial al formato nativo de Google Gemini API
-    contents_gemini = []
-    for m in historial_mensajes:
-        role_gemini = "user" if m["role"] == "user" else "model"
-        contents_gemini.append({
-            "role": role_gemini,
-            "parts": [{"text": m["content"]}]
-        })
-        
-    system_instruction = {
-        "parts": [{
-            "text": (
-                "Eres el Director de Finanzas (CFO) Corporativo de una compañía minera y Tutor Académico. "
-                "Evalúas a estudiantes en 'Análisis de Estados Financieros bajo Volatilidad'. "
-                "REGLAS STRICTAS OBLIGATORIAS:\n"
-                "1. Responde SIEMPRE en español de forma profesional, directa y socrática.\n"
-                "2. JAMÁS imprimas borradores, notas de razonamiento, 'Drafts', 'Steps' ni texto en inglés.\n"
-                "3. Responde de inmediato a las propuestas del alumno, guiándolo a analizar el impacto en la caja y el capital de trabajo."
-            )
-        }]
-    }
-    
-    payload = {
-        "system_instruction": system_instruction,
-        "contents": contents_gemini,
-        "generationConfig": {
-            "temperature": 0.5,
-            "maxOutputTokens": 500
-        }
-    }
-    
-    headers = {'Content-Type': 'application/json'}
-    
-    # Priorizamos los dos modelos más rápidos de Google
-    modelos_candidatos = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
-    ]
-    
-    # 1. Probar modelos candidatos con un timeout holgado de 25 segundos
-    for mod in modelos_candidatos:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key_segura}"
-            res = requests.post(url, json=payload, headers=headers, timeout=25)
-            if res.status_code == 200:
-                resultado = res.json()
-                return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
-        except requests.exceptions.Timeout:
-            continue
-        except Exception:
-            continue
-
-    # 2. Fallback dinámico si los fijos fallan
-    try:
-        url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key_segura}"
-        res_lista = requests.get(url_lista, timeout=10)
-        
-        if res_lista.status_code == 200:
-            datos = res_lista.json()
-            modelos_activos = [
-                m['name'].replace('models/', '') 
-                for m in datos.get('models', []) 
-                if 'generateContent' in m.get('supportedGenerationMethods', [])
-            ]
-            
-            for m_activo in modelos_activos:
-                url_dinamica = f"https://generativelanguage.googleapis.com/v1beta/models/{m_activo}:generateContent?key={api_key_segura}"
-                res_dinamica = requests.post(url_dinamica, json=payload, headers=headers, timeout=25)
-                if res_dinamica.status_code == 200:
-                    resultado = res_dinamica.json()
-                    return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
-    except Exception as e:
-        raise Exception(f"No se pudo completar la solicitud por tiempo de espera: {e}")
-        
-    raise Exception("El servidor de Google tardó demasiado en responder. Por favor, intenta enviar tu mensaje nuevamente.")
-    
 # ==========================================
 #     BANCO DE CASOS MINEROS
 # ==========================================
@@ -173,14 +91,84 @@ CASOS_MINEROS = [
     }
 ]
 
-SYSTEM_INSTRUCTIONS = """
-Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de 'Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global'. A lo largo del chat evaluarás su criterio financiero. Responde SIEMPRE de forma directa, en español, profesional y de manera socrática (haz preguntas pedagógicas para que el alumno analice, no des definiciones de libro inmediatas).
-"""
+# Inicialización de caso y mensajes limpios
+if "caso_seleccionado" not in st.session_state:
+    st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+    st.session_state.preguntas_examen = None
 
 # ==========================================
-#     CÓDIGO PRINCIPAL DE LA APLICACIÓN
+#  FUNCIÓN DE CONEXIÓN A GEMINI (PROMPT LIMPIO)
+# ==========================================
+def llamar_gemini_api(historial_mensajes, caso_info):
+    """Envía la conversación a Gemini con instrucciones de rol estrictas."""
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key_segura}"
+    headers = {'Content-Type': 'application/json'}
+    
+    # Construcción limpia del historial
+    contents_gemini = []
+    for m in historial_mensajes:
+        role_gemini = "user" if m["role"] == "user" else "model"
+        contents_gemini.append({
+            "role": role_gemini,
+            "parts": [{"text": m["content"]}]
+        })
+        
+    system_instruction = {
+        "parts": [{
+            "text": (
+                f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera. "
+                f"Escenario actual: {caso_info['titulo']} - {caso_info['entorno']}. "
+                f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
+                "REGLAS ABSOLUTAS DE RESPUESTA:\n"
+                "1. Responde SIEMPRE en español, directo al estudiante, con tono profesional de CFO y método socrático.\n"
+                "2. JAMÁS escribas análisis internos, notas de pensamiento, 'Goal:', 'User says:', 'Drafts', 'Context:' ni frases en inglés.\n"
+                "3. Mantén tus respuestas en un rango conciso (máximo 2 a 3 párrafos cortos) con preguntas pedagógicas."
+            )
+        }]
+    }
+    
+    payload = {
+        "system_instruction": system_instruction,
+        "contents": contents_gemini,
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 400
+        }
+    }
+    
+    # Primer intento con gemini-2.0-flash, fallback a gemini-1.5-flash
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=20)
+        if res.status_code != 200:
+            url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
+            res = requests.post(url_fallback, json=payload, headers=headers, timeout=20)
+    except Exception:
+        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
+        res = requests.post(url_fallback, json=payload, headers=headers, timeout=20)
+        
+    if res.status_code == 200:
+        resultado = res.json()
+        texto = resultado['candidates'][0]['content']['parts'][0]['text'].strip()
+        
+        # Filtro de seguridad Python: si el modelo cuela texto de pensamiento, extrae solo la respuesta final
+        if "User says:" in texto or "Draft" in texto or "Goal:" in texto:
+            lineas = texto.split("\n")
+            lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
+            texto = "\n".join(lineas_limpias).strip()
+            
+        return texto
+    else:
+        raise Exception(f"Error {res.status_code}: {res.text}")
+
+# ==========================================
+#     PANEL LATERAL
 # ==========================================
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
+st.session_state.nombre_estudiante = nombre_estudiante
 
 with st.sidebar:
     st.write("---")
@@ -190,18 +178,8 @@ with st.sidebar:
         st.session_state.pop("preguntas_examen", None)
         st.rerun()
 
-if "caso_seleccionado" not in st.session_state:
-    st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
-
-if "messages" not in st.session_state:
-    caso = st.session_state.caso_seleccionado
-    st.session_state.messages = [
-        {"role": "assistant", "content": f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso['mensaje_inicial']}"}
-    ]
-    st.session_state.preguntas_examen = None
-
 # ==========================================
-#     DISTRIBUCIÓN DE PANTALLA: PANELES
+#     DISTRIBUCIÓN DE PANTALLA
 # ==========================================
 col_datos, col_interactiva = st.columns([0.4, 0.6])
 
@@ -228,10 +206,13 @@ with col_interactiva:
         
         chat_container = st.container(height=400)
         with chat_container:
-            if "messages" in st.session_state:
-                for msg in st.session_state.messages:
-                    with st.chat_message(msg["role"]):
-                        st.write(msg["content"])
+            # Mensaje de bienvenida inicial fijo en la interfaz
+            st.chat_message("assistant").write(f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso_actual['mensaje_inicial']}")
+            
+            # Historial interactivo
+            for msg in st.session_state.messages:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
 
         if user_input := st.chat_input("Escribe tu propuesta al CFO..."):
             with chat_container:
@@ -240,8 +221,8 @@ with col_interactiva:
             st.session_state.messages.append({"role": "user", "content": user_input})
             
             try:
-                with st.spinner("El CFO evalúa tu propuesta..."):
-                    respuesta_texto = llamar_gemini_api(st.session_state.messages)
+                with st.spinner("El CFO evalúa tu respuesta..."):
+                    respuesta_texto = llamar_gemini_api(st.session_state.messages, caso_actual)
                     
                 with chat_container:
                     st.chat_message("assistant").write(respuesta_texto)
@@ -253,21 +234,21 @@ with col_interactiva:
                 
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
-        st.write("El CFO generará preguntas de opción múltiple únicas basándose en tu desempeño en el chat.")
+        st.write("El CFO generará preguntas de opción múltiple basadas en la discusión.")
         
         if st.button("Generar mi Examen Único"):
             prompt_evaluacion = (
-                "Genera 3 preguntas de opción múltiple basadas en la conversación. "
-                "Responde ÚNICAMENTE con un JSON válido con esta estructura exacta, sin markdown ni comillas ```json:\n"
+                "Genera 3 preguntas de opción múltiple basadas en este caso minero y discusión. "
+                "Responde ÚNICAMENTE con un JSON válido con esta estructura exacta, sin markdown ni ```json:\n"
                 '{"preguntas": [{"id": 1, "pregunta": "...", "opciones": ["A", "B", "C", "D"], "correcta": "opcion exacta"}]}'
             )
             try:
                 with st.spinner("El CFO está redactando tus preguntas..."):
-                    historial_para_examen = st.session_state.messages + [{"role": "user", "content": prompt_evaluacion}]
-                    response_json = llamar_gemini_api(historial_para_examen)
+                    historial_eval = st.session_state.messages + [{"role": "user", "content": prompt_evaluacion}]
+                    response_json = llamar_gemini_api(historial_eval, caso_actual)
                     response_json = response_json.replace("```json", "").replace("```", "").strip()
                     st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
-                    st.success("¡Examen generado exitosamente! Responde abajo.")
+                    st.success("¡Examen generado exitosamente!")
             except Exception as e:
                 st.error(f"Error al estructurar la evaluación: {e}")
         
@@ -281,32 +262,7 @@ with col_interactiva:
                 enviar_evaluacion = st.form_submit_button("Enviar Respuestas al Docente")
                 
                 if enviar_evaluacion:
-                    respuestas_correctas = 0
+                    respuestas_correctas = sum(1 for item in st.session_state.preguntas_examen if respuestas_usuario[item['id']] == item['correcta'])
                     total_preguntas = len(st.session_state.preguntas_examen)
-                    reporte_respuestas = []
-                    
-                    for item in st.session_state.preguntas_examen:
-                        resp_estudiante = respuestas_usuario[item['id']]
-                        es_correcta = resp_estudiante == item['correcta']
-                        if es_correcta:
-                            respuestas_correctas += 1
-                        reporte_respuestas.append({
-                            "Pregunta": item['pregunta'],
-                            "Respuesta_Estudiante": resp_estudiante,
-                            "Respuesta_Correcta": item['correcta'],
-                            "Resultado": "Correcto" if es_correcta else "Incorrecto"
-                        })
-                    
                     nota_final = (respuestas_correctas / total_preguntas) * 20
-                    st.metric(label="Calificación de la Evaluación", value=f"{nota_final:.1f} / 20.0")
-                    
-                    df_reporte = pd.DataFrame(reporte_respuestas)
-                    df_reporte["Estudiante"] = st.session_state.nombre_estudiante
-                    df_reporte["Nota"] = nota_final
-                    csv = df_reporte.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Descargar Hoja de Respuestas para el Profesor (CSV)",
-                        data=csv,
-                        file_name=f"Evaluacion_{st.session_state.nombre_estudiante.replace(' ', '_')}.csv",
-                        mime="text/csv"
-                    )
+                    st.metric(label="Calificación", value=f"{nota_final:.1f} / 20.0")
