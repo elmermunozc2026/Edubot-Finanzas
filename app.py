@@ -59,12 +59,12 @@ if not st.session_state.autenticado:
     st.stop()  # DETIENE LA EJECUCIÓN AQUÍ HASTA QUE SE AUTENTIQUE
 
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN ROBUSTA A GEMINI API
+#  FUNCIÓN DE CONEXIÓN ROBUSTA Y RÁPIDA
 # ==========================================
 def llamar_gemini_api(historial_mensajes):
-    """Llama a la API de Gemini probando endpoints activos y compatibles."""
+    """Llama a la API de Gemini con tiempo de espera ampliado y respuesta optimizada."""
     
-    # Formatear el historial al formato nativo que exige Google Gemini API
+    # Formatear el historial al formato nativo de Google Gemini API
     contents_gemini = []
     for m in historial_mensajes:
         role_gemini = "user" if m["role"] == "user" else "model"
@@ -91,53 +91,54 @@ def llamar_gemini_api(historial_mensajes):
         "contents": contents_gemini,
         "generationConfig": {
             "temperature": 0.5,
-            "maxOutputTokens": 600
+            "maxOutputTokens": 500
         }
     }
     
     headers = {'Content-Type': 'application/json'}
     
-    # Lista de nombres de modelos vigentes en la API REST de Google
+    # Priorizamos los dos modelos más rápidos de Google
     modelos_candidatos = [
         "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-pro"
+        "gemini-1.5-flash"
     ]
     
-    # 1. Probar modelos candidatos
+    # 1. Probar modelos candidatos con un timeout holgado de 25 segundos
     for mod in modelos_candidatos:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key_segura}"
-        res = requests.post(url, json=payload, headers=headers, timeout=8)
-        if res.status_code == 200:
-            resultado = res.json()
-            try:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key_segura}"
+            res = requests.post(url, json=payload, headers=headers, timeout=25)
+            if res.status_code == 200:
+                resultado = res.json()
                 return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
-            except (KeyError, IndexError):
-                continue
+        except requests.exceptions.Timeout:
+            continue
+        except Exception:
+            continue
 
-    # 2. Si ninguno de los modelos fijos responde, consultar dinámicamente a la API cuáles están activos para tu Key
-    url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key_segura}"
-    res_lista = requests.get(url_lista, timeout=5)
-    
-    if res_lista.status_code == 200:
-        datos = res_lista.json()
-        modelos_activos = [
-            m['name'].replace('models/', '') 
-            for m in datos.get('models', []) 
-            if 'generateContent' in m.get('supportedGenerationMethods', [])
-        ]
+    # 2. Fallback dinámico si los fijos fallan
+    try:
+        url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key_segura}"
+        res_lista = requests.get(url_lista, timeout=10)
         
-        for m_activo in modelos_activos:
-            url_dinamica = f"https://generativelanguage.googleapis.com/v1beta/models/{m_activo}:generateContent?key={api_key_segura}"
-            res_dinamica = requests.post(url_dinamica, json=payload, headers=headers, timeout=8)
-            if res_dinamica.status_code == 200:
-                resultado = res_dinamica.json()
-                return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
-                
-        raise Exception(f"Modelos detectados en tu API Key: {modelos_activos}, pero ninguno pudo procesar la solicitud.")
-    else:
-        raise Exception(f"Error al conectar con Google API ({res_lista.status_code}): {res_lista.text}")
+        if res_lista.status_code == 200:
+            datos = res_lista.json()
+            modelos_activos = [
+                m['name'].replace('models/', '') 
+                for m in datos.get('models', []) 
+                if 'generateContent' in m.get('supportedGenerationMethods', [])
+            ]
+            
+            for m_activo in modelos_activos:
+                url_dinamica = f"https://generativelanguage.googleapis.com/v1beta/models/{m_activo}:generateContent?key={api_key_segura}"
+                res_dinamica = requests.post(url_dinamica, json=payload, headers=headers, timeout=25)
+                if res_dinamica.status_code == 200:
+                    resultado = res_dinamica.json()
+                    return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
+    except Exception as e:
+        raise Exception(f"No se pudo completar la solicitud por tiempo de espera: {e}")
+        
+    raise Exception("El servidor de Google tardó demasiado en responder. Por favor, intenta enviar tu mensaje nuevamente.")
     
 # ==========================================
 #     BANCO DE CASOS MINEROS
