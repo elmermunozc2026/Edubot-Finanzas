@@ -24,8 +24,9 @@ else:
 #      FUNCIÓN DE CONEXIÓN DIRECTA (API REST)
 # ==========================================
 def llamar_gemini_api(prompt_texto):
-    """Realiza una petición HTTP POST directa a la API de Gemini v1 bypassando la librería local."""
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
+    """Realiza una petición HTTP POST directa a la API de Gemini usando el endpoint v1beta/v1 actualizado."""
+    # Usamos el alias 'gemini-1.5-flash-latest' o 'gemini-1.5-flash' en v1beta que es el estándar universal
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
     headers = {'Content-Type': 'application/json'}
     payload = {
         "contents": [
@@ -42,10 +43,14 @@ def llamar_gemini_api(prompt_texto):
     
     response = requests.post(url, json=payload, headers=headers)
     
+    # Si por alguna razón v1beta con 1.5-flash da error, probamos el fallback a gemini-2.0-flash o gemini-1.5-flash-latest
+    if response.status_code != 200:
+        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key_segura}"
+        response = requests.post(url_fallback, json=payload, headers=headers)
+
     if response.status_code == 200:
         resultado = response.json()
         try:
-            # Extrae el texto de la respuesta estructurada de Google
             return resultado['candidates'][0]['content']['parts'][0]['text']
         except (KeyError, IndexError):
             raise Exception("La API respondió pero el formato del contenido no es el esperado.")
