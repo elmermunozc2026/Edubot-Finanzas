@@ -101,10 +101,10 @@ if "messages" not in st.session_state:
     st.session_state.preguntas_examen = None
 
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN CON LIBRERÍA OFICIAL
+#  FUNCIÓN DE CONEXIÓN DINÁMICA CON EL SDK
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a Gemini usando el SDK oficial de Google, garantizando compatibilidad y velocidad."""
+    """Llama a Gemini usando el SDK oficial con descubrimiento dinámico de modelos."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera. "
@@ -116,53 +116,73 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         "3. Mantén tus respuestas en un rango conciso (máximo 2 a 3 párrafos cortos) con preguntas pedagógicas."
     )
 
-    # Configuración del modelo con el SDK oficial
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
-        system_instruction=system_instruction
-    )
-
     # Formatear el historial para el SDK
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
         contents.append({"role": role, "parts": [m["content"]]})
 
-    try:
-        response = model.generate_content(
-            contents,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.4,
-                max_output_tokens=500
-            )
-        )
-        texto = response.text.strip()
+    # Lista de nombres preferidos para Gemini 2.0
+    modelos_preferidos = [
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-2.5-flash"
+    ]
 
-        # Filtro de seguridad anti-pensamiento en texto
-        if any(k in texto for k in ["User says:", "Draft", "Goal:", "Context:"]):
-            lineas = texto.split("\n")
-            lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
-            texto = "\n".join(lineas_limpias).strip()
-
-        return texto
-
-    except Exception as e:
-        # Fallback a gemini-1.5-pro si gemini-1.5-flash no estuviera disponible en la cuenta
+    # 1. Intentar con la lista preferida de v2.0
+    for nombre_modelo in modelos_preferidos:
         try:
-            model_alt = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
+            model = genai.GenerativeModel(
+                model_name=nombre_modelo,
                 system_instruction=system_instruction
             )
-            response = model_alt.generate_content(
+            response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.4,
                     max_output_tokens=500
                 )
             )
-            return response.text.strip()
-        except Exception as ex:
-            raise Exception(f"Error al conectar con la API de Gemini: {ex}")
+            texto = response.text.strip()
+
+            # Filtro anti-borradores internos
+            if any(k in texto for k in ["User says:", "Draft", "Goal:", "Context:"]):
+                lineas = texto.split("\n")
+                lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
+                texto = "\n".join(lineas_limpias).strip()
+
+            return texto
+        except Exception:
+            continue
+
+    # 2. Fallback dinámico: Buscar cualquier modelo soportado en la API Key
+    try:
+        modelos_disponibles = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        for m_nombre in modelos_disponibles:
+            try:
+                model = genai.GenerativeModel(
+                    model_name=m_nombre,
+                    system_instruction=system_instruction
+                )
+                response = model.generate_content(
+                    contents,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.4,
+                        max_output_tokens=500
+                    )
+                )
+                return response.text.strip()
+            except Exception:
+                continue
+
+    except Exception as e:
+        raise Exception(f"No se pudieron consultar los modelos activos: {e}")
+
+    raise Exception("No hay modelos de generación de texto disponibles actualmente en tu API Key.")
 
 # ==========================================
 #     PANEL LATERAL
