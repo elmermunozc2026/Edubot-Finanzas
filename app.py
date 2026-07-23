@@ -5,6 +5,18 @@ import json
 import random
 
 # ==========================================
+#  INICIALIZACIÓN DEL ESTADO DE SESIÓN (SESSION STATE)
+# ==========================================
+if "nombre_estudiante" not in st.session_state:
+    st.session_state["nombre_estudiante"] = ""
+
+if "mensajes_chat" not in st.session_state:
+    st.session_state["mensajes_chat"] = []
+
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+    
+# ==========================================
 #      CONFIGURACIÓN DE LA PÁGINA
 # ==========================================
 st.set_page_config(
