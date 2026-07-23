@@ -5,18 +5,6 @@ import json
 import random
 
 # ==========================================
-#  INICIALIZACIÓN DEL ESTADO DE SESIÓN (SESSION STATE)
-# ==========================================
-if "nombre_estudiante" not in st.session_state:
-    st.session_state["nombre_estudiante"] = ""
-
-if "mensajes_chat" not in st.session_state:
-    st.session_state["mensajes_chat"] = []
-
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
-    
-# ==========================================
 #      CONFIGURACIÓN DE LA PÁGINA
 # ==========================================
 st.set_page_config(
@@ -25,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ACCESO SEGURO A LA API KEY DESDE LOS SECRETS DE STREAMLIT
+# ACCESO SEGURO A LA API KEY
 if "GEMINI_API_KEY" in st.secrets:
     api_key_segura = st.secrets["GEMINI_API_KEY"]
 else:
@@ -33,77 +21,87 @@ else:
     st.stop()
 
 # ==========================================
-#      FUNCIÓN DE CONEXIÓN DIRECTA (API REST)
+#  INICIALIZACIÓN DEL ESTADO DE SESIÓN
 # ==========================================
-def llamar_gemini_api(prompt_texto):
-    """Realiza una petición HTTP POST directa a la API de Gemini usando el endpoint v1beta/v1 actualizado."""
-    # Usamos el alias 'gemini-1.5-flash-latest' o 'gemini-1.5-flash' en v1beta que es el estándar universal
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
-    headers = {'Content-Type': 'application/json'}
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt_texto}
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.7
-        }
-    }
-    
-    response = requests.post(url, json=payload, headers=headers)
-    
-    # Si por alguna razón v1beta con 1.5-flash da error, probamos el fallback a gemini-2.0-flash o gemini-1.5-flash-latest
-    if response.status_code != 200:
-        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key_segura}"
-        response = requests.post(url_fallback, json=payload, headers=headers)
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
 
-    if response.status_code == 200:
-        resultado = response.json()
-        try:
-            return resultado['candidates'][0]['content']['parts'][0]['text']
-        except (KeyError, IndexError):
-            raise Exception("La API respondió pero el formato del contenido no es el esperado.")
-    else:
-        raise Exception(f"Error HTTP {response.status_code}: {response.text}")
+if "nombre_estudiante" not in st.session_state:
+    st.session_state.nombre_estudiante = ""
+
+# ==========================================
+#      CONTROL DE ACCESO (LOGIN OBLIGATORIO)
+# ==========================================
+if not st.session_state.autenticado:
+    st.title("🔐 Acceso Autorizado - Edubot Finanzas")
+    st.write("Por favor, introduce tus credenciales de estudiante para ingresar a la plataforma de evaluación.")
+    
+    with st.form("formulario_login"):
+        correo_input = st.text_input("Correo electrónico institucional:").strip().lower()
+        password_input = st.text_input("Contraseña temporal del curso:", type="password")
+        boton_ingresar = st.form_submit_button("Ingresar al Edubot")
+        
+        if boton_ingresar:
+            try:
+                password_valida = st.secrets["accesos_alumnos"]["password_temporal"]
+                correos_validos = [c.lower() for c in st.secrets["accesos_alumnos"]["correos_autorizados"]]
+                
+                if correo_input in correos_validos and password_input == password_valida:
+                    st.session_state.autenticado = True
+                    nombre_defecto = correo_input.split("@")[0].replace(".", " ").title()
+                    st.session_state.nombre_estudiante = nombre_defecto
+                    st.success("¡Acceso concedido!")
+                    st.rerun()
+                else:
+                    st.error("El correo no está registrado como autorizado o la contraseña es incorrecta.")
+            except Exception as e:
+                st.error("Error al verificar los secretos de autenticación.")
+    st.stop()  # DETIENE LA EJECUCIÓN AQUÍ HASTA QUE SE AUTENTIQUE
 
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN DINÁMICA A GEMINI API
 # ==========================================
 def llamar_gemini_api(prompt_texto):
-    """Detecta automáticamente el modelo disponible para la API Key y realiza la consulta."""
+    """Realiza la consulta a la API de Gemini exigiendo solo el mensaje final en español."""
     
-    # 1. Intentar con modelos estándar conocidos
     modelos_a_probar = [
-        "gemini-2.0-flash",
         "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-1.0-pro"
+        "gemini-2.0-flash",
+        "gemini-1.5-pro"
     ]
     
     headers = {'Content-Type': 'application/json'}
+    
+    # Instrucción estricta para evitar que muestre el borrador o pensamientos en inglés
+    instruccion_formato = (
+        "INSTRUCCIÓN OBLIGATORIA DE FORMATO: Responde EXCLUSIVAMENTE con el mensaje final dirigido al estudiante en español. "
+        "NO incluyas tu proceso de pensamiento, ni borrador, ni etiquetas en inglés como 'Draft 1', 'Step 1', 'Goal:', 'Persona:' etc. "
+        "Habla directamente como el CFO en español.\n\n"
+    )
+    
     payload = {
-        "contents": [{"parts": [{"text": prompt_texto}]}],
+        "contents": [{"parts": [{"text": instruccion_formato + prompt_texto}]}],
         "generationConfig": {"temperature": 0.7}
     }
     
-    # Probar cada modelo de la lista
     for modelo in modelos_a_probar:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key_segura}"
         res = requests.post(url, json=payload, headers=headers)
         if res.status_code == 200:
             resultado = res.json()
             try:
-                return resultado['candidates'][0]['content']['parts'][0]['text']
+                texto_respuesta = resultado['candidates'][0]['content']['parts'][0]['text']
+                # Si por alguna razón incluye pensamiento, nos quedamos solo con la parte final
+                if "Draft" in texto_respuesta or "Step 1:" in texto_respuesta:
+                    partes = texto_respuesta.split("\n\n")
+                    texto_respuesta = partes[-1]
+                return texto_respuesta
             except (KeyError, IndexError):
                 continue
 
-    # 2. Si ninguno de los anteriores funcionó, consultar a la API la lista de modelos activos para esta Key
+    # Fallback dinámico si fallan los nombres predeterminados
     url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key_segura}"
     res_lista = requests.get(url_lista)
-    
     if res_lista.status_code == 200:
         datos_modelos = res_lista.json()
         modelos_disponibles = [
@@ -111,8 +109,6 @@ def llamar_gemini_api(prompt_texto):
             for m in datos_modelos.get('models', []) 
             if 'generateContent' in m.get('supportedGenerationMethods', [])
         ]
-        
-        # Intentar con el primer modelo válido que retorne Google
         for m_valido in modelos_disponibles:
             url_dinamica = f"https://generativelanguage.googleapis.com/v1beta/models/{m_valido}:generateContent?key={api_key_segura}"
             res_dinamica = requests.post(url_dinamica, json=payload, headers=headers)
@@ -120,12 +116,10 @@ def llamar_gemini_api(prompt_texto):
                 resultado = res_dinamica.json()
                 return resultado['candidates'][0]['content']['parts'][0]['text']
                 
-        raise Exception(f"Modelos permitidos para tu API Key: {modelos_disponibles}. Ninguno aceptó la petición.")
-    else:
-        raise Exception(f"Error al verificar la API Key ({res_lista.status_code}): {res_lista.text}")
+    raise Exception("No se pudo conectar con los modelos de Gemini API.")
 
 # ==========================================
-#      BANCO DE CASOS MINEROS
+#     BANCO DE CASOS MINEROS
 # ==========================================
 CASOS_MINEROS = [
     {
@@ -158,11 +152,11 @@ CASOS_MINEROS = [
 ]
 
 SYSTEM_INSTRUCTIONS = """
-Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de "Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global". A lo largo del chat evaluarás su criterio financiero.
+Asume el rol de un Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. Tu objetivo es guiar al estudiante de manera interactiva y socrática en la asignatura de 'Análisis de Estados Financieros para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global'. A lo largo del chat evaluarás su criterio financiero. Responde SIEMPRE de forma directa, en español, profesional y de manera socrática (haz preguntas pedagógicas para que el alumno analice, no des definiciones de libro inmediatas).
 """
 
 # ==========================================
-#     CÓDIGO PRINCIPAL Y CONTROL DE SESIÓN
+#     CÓDIGO PRINCIPAL DE LA APLICACIÓN
 # ==========================================
 nombre_estudiante = st.sidebar.text_input("Nombre del Estudiante:", value=st.session_state.nombre_estudiante)
 
@@ -225,14 +219,12 @@ with col_interactiva:
             
             try:
                 with st.spinner("El CFO evalúa tu respuesta..."):
-                    # Construcción manual del prompt consolidado
                     prompt_completo = f"INSTRUCCIONES DE ROL:\n{SYSTEM_INSTRUCTIONS}\n\nHISTORIAL DE LA CONVERSACIÓN:\n"
                     for msg in st.session_state.messages:
                         rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
                         prompt_completo += f"{rol}: {msg['content']}\n"
-                    prompt_completo += "\nCFO (Tú): Responde al último comentario del estudiante de forma socrática."
+                    prompt_completo += "\nCFO (Tú): Responde al último comentario del estudiante de forma socrática, directo en español y sin mostrar borradores."
                     
-                    # Llamada HTTP directa
                     respuesta_texto = llamar_gemini_api(prompt_completo)
                     
                 with chat_container:
@@ -257,7 +249,6 @@ with col_interactiva:
                     historial_contexto = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
                     prompt_final = f"{prompt_evaluacion}\n\nHistorial del chat para adaptarlo:\n{historial_contexto}"
                     
-                    # Llamada HTTP directa
                     response_json = llamar_gemini_api(prompt_final)
                     response_json = response_json.replace("```json", "").replace("```", "").strip()
                     st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
