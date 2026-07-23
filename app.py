@@ -191,7 +191,7 @@ with col_datos:
 with col_interactiva:
     tab1, tab2 = st.tabs(["💬 Chat Socrático", "📝 Examen Personalizado"])
     
-   with tab1:
+    with tab1:
         st.subheader("Discusión de Casos con el CFO")
         
         chat_container = st.container(height=400)
@@ -202,16 +202,13 @@ with col_interactiva:
                         st.write(msg["content"])
 
         if user_input := st.chat_input("Escribe tu propuesta al CFO..."):
-            # Mostrar el mensaje del estudiante en pantalla
             with chat_container:
                 st.chat_message("user").write(user_input)
                 
-            # Guardar el mensaje del usuario en la memoria de sesión
             st.session_state.messages.append({"role": "user", "content": user_input})
             
             try:
                 with st.spinner("El CFO evalúa tu propuesta..."):
-                    # Enviamos todo el historial formateado correctamente
                     respuesta_texto = llamar_gemini_api(st.session_state.messages)
                     
                 with chat_container:
@@ -227,16 +224,15 @@ with col_interactiva:
         st.write("El CFO generará preguntas de opción múltiple únicas basándose en tu desempeño en el chat.")
         
         if st.button("Generar mi Examen Único"):
-            prompt_evaluacion = """
-            Genera 3 preguntas de opción múltiple únicas para este estudiante. Adáptalas a lo que hemos conversado en el chat. Debes responder UNICAMENTE con un objeto JSON estructurado exactamente así, sin markdown extra, sin la palabra ```json:
-            {"preguntas": [{"id": 1, "pregunta": "Escribe aquí la pregunta basada en el balance o entorno minero...", "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"], "correcta": "La opción exacta escrita de la misma forma"}]}
-            """
+            prompt_evaluacion = (
+                "Genera 3 preguntas de opción múltiple basadas en la conversación. "
+                "Responde ÚNICAMENTE con un JSON válido con esta estructura exacta, sin markdown ni comillas ```json:\n"
+                '{"preguntas": [{"id": 1, "pregunta": "...", "opciones": ["A", "B", "C", "D"], "correcta": "opcion exacta"}]}'
+            )
             try:
                 with st.spinner("El CFO está redactando tus preguntas..."):
-                    historial_contexto = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
-                    prompt_final = f"{prompt_evaluacion}\n\nHistorial del chat para adaptarlo:\n{historial_contexto}"
-                    
-                    response_json = llamar_gemini_api(prompt_final)
+                    historial_para_examen = st.session_state.messages + [{"role": "user", "content": prompt_evaluacion}]
+                    response_json = llamar_gemini_api(historial_para_examen)
                     response_json = response_json.replace("```json", "").replace("```", "").strip()
                     st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
                     st.success("¡Examen generado exitosamente! Responde abajo.")
@@ -273,12 +269,12 @@ with col_interactiva:
                     st.metric(label="Calificación de la Evaluación", value=f"{nota_final:.1f} / 20.0")
                     
                     df_reporte = pd.DataFrame(reporte_respuestas)
-                    df_reporte["Estudiante"] = nombre_estudiante
+                    df_reporte["Estudiante"] = st.session_state.nombre_estudiante
                     df_reporte["Nota"] = nota_final
                     csv = df_reporte.to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="📥 Descargar Hoja de Respuestas para el Profesor (CSV)",
                         data=csv,
-                        file_name=f"Evaluacion_{nombre_estudiante.replace(' ', '_')}.csv",
+                        file_name=f"Evaluacion_{st.session_state.nombre_estudiante.replace(' ', '_')}.csv",
                         mime="text/csv"
                     )
