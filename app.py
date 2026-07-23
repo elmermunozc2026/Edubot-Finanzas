@@ -100,12 +100,11 @@ if "messages" not in st.session_state:
     st.session_state.preguntas_examen = None
 
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN A GEMINI (PROMPT LIMPIO)
+#  FUNCIÓN DE CONEXIÓN A GEMINI (ACTUALIZADA)
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Envía la conversación a Gemini con instrucciones de rol estrictas."""
+    """Envía la conversación a Gemini con modelos activos v2.0 y sin rutas obsoletas."""
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key_segura}"
     headers = {'Content-Type': 'application/json'}
     
     # Construcción limpia del historial
@@ -140,29 +139,32 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         }
     }
     
-    # Primer intento con gemini-2.0-flash, fallback a gemini-1.5-flash
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=20)
-        if res.status_code != 200:
-            url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
-            res = requests.post(url_fallback, json=payload, headers=headers, timeout=20)
-    except Exception:
-        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
-        res = requests.post(url_fallback, json=payload, headers=headers, timeout=20)
-        
-    if res.status_code == 200:
-        resultado = res.json()
-        texto = resultado['candidates'][0]['content']['parts'][0]['text'].strip()
-        
-        # Filtro de seguridad Python: si el modelo cuela texto de pensamiento, extrae solo la respuesta final
-        if "User says:" in texto or "Draft" in texto or "Goal:" in texto:
-            lineas = texto.split("\n")
-            lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
-            texto = "\n".join(lineas_limpias).strip()
+    # Lista de modelos vigentes en la API v1beta
+    modelos_disponibles = [
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite"
+    ]
+    
+    for mod in modelos_disponibles:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key_segura}"
+            res = requests.post(url, json=payload, headers=headers, timeout=20)
             
-        return texto
-    else:
-        raise Exception(f"Error {res.status_code}: {res.text}")
+            if res.status_code == 200:
+                resultado = res.json()
+                texto = resultado['candidates'][0]['content']['parts'][0]['text'].strip()
+                
+                # Filtro de seguridad anti-pensamiento en texto
+                if "User says:" in texto or "Draft" in texto or "Goal:" in texto:
+                    lineas = texto.split("\n")
+                    lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
+                    texto = "\n".join(lineas_limpias).strip()
+                    
+                return texto
+        except Exception:
+            continue
+            
+    raise Exception("No se pudo obtener respuesta de los modelos de Google disponibles. Por favor, intenta de nuevo.")
 
 # ==========================================
 #     PANEL LATERAL
