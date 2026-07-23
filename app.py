@@ -59,76 +59,54 @@ if not st.session_state.autenticado:
     st.stop()  # DETIENE LA EJECUCIÓN AQUÍ HASTA QUE SE AUTENTIQUE
 
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN DINÁMICA A GEMINI API
+#  FUNCIÓN DE CONEXIÓN ULTRARRÁPIDA A GEMINI
 # ==========================================
-def llamar_gemini_api(prompt_texto):
-    """Realiza la consulta a la API de Gemini utilizando system_instruction para evitar borradores."""
-    
-    modelos_a_probar = [
-        "gemini-1.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro"
-    ]
-    
+def llamar_gemini_api(historial_mensajes):
+    """Llama directamente a Gemini 1.5 Flash usando la estructura nativa de conversación."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key_segura}"
     headers = {'Content-Type': 'application/json'}
     
-    # Instrucción de sistema separada (System Prompt oficial de Gemini)
+    # Formatear el historial al formato estricto que exige Google Gemini API
+    contents_gemini = []
+    for m in historial_mensajes:
+        role_gemini = "user" if m["role"] == "user" else "model"
+        contents_gemini.append({
+            "role": role_gemini,
+            "parts": [{"text": m["content"]}]
+        })
+        
     system_instruction = {
-        "parts": [
-            {
-                "text": (
-                    "Asume el rol de Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. "
-                    "Tu objetivo es guiar al estudiante de manera socrática en la asignatura de Análisis de Estados Financieros "
-                    "para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global. "
-                    "REGLAS STRICTAS: Responde ÚNICAMENTE con la respuesta final en español. Jamás incluyas tu borrador, "
-                    "pensamientos, etiquetas en inglés ni explicaciones de tu proceso mental. "
-                    "Habla directamente como el CFO al estudiante."
-                )
-            }
-        ]
+        "parts": [{
+            "text": (
+                "Eres el Director de Finanzas (CFO) Corporativo de una compañía minera y Tutor Académico. "
+                "Evalúas a estudiantes en 'Análisis de Estados Financieros bajo Volatilidad'. "
+                "REGLAS STRICTAS OBLIGATORIAS:\n"
+                "1. Responde SIEMPRE en español de forma profesional, directa y socrática.\n"
+                "2. JAMÁS imprimas borradores, notas de razonamiento, 'Drafts', 'Steps' ni texto en inglés.\n"
+                "3. Responde de inmediato a las propuestas del alumno, guiándolo a analizar el impacto en la caja y el capital de trabajo."
+            )
+        }]
     }
     
     payload = {
         "system_instruction": system_instruction,
-        "contents": [{"parts": [{"text": prompt_texto}]}],
+        "contents": contents_gemini,
         "generationConfig": {
-            "temperature": 0.7
+            "temperature": 0.5,
+            "maxOutputTokens": 600
         }
     }
     
-    for modelo in modelos_a_probar:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key_segura}"
-        res = requests.post(url, json=payload, headers=headers)
-        if res.status_code == 200:
-            resultado = res.json()
-            try:
-                texto_respuesta = resultado['candidates'][0]['content']['parts'][0]['text']
-                # Filtro de seguridad adicional si el modelo incluye marcas de borrador
-                if "Draft" in texto_respuesta or "Step 1:" in texto_respuesta:
-                    partes = texto_respuesta.split("\n\n")
-                    texto_respuesta = partes[-1]
-                return texto_respuesta.strip()
-            except (KeyError, IndexError):
-                continue
-
-    # Fallback dinámico
-    url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key_segura}"
-    res_lista = requests.get(url_lista)
-    if res_lista.status_code == 200:
-        datos_modelos = res_lista.json()
-        modelos_disponibles = [
-            m['name'].replace('models/', '') 
-            for m in datos_modelos.get('models', []) 
-            if 'generateContent' in m.get('supportedGenerationMethods', [])
-        ]
-        for m_valido in modelos_disponibles:
-            url_dinamica = f"https://generativelanguage.googleapis.com/v1beta/models/{m_valido}:generateContent?key={api_key_segura}"
-            res_dinamica = requests.post(url_dinamica, json=payload, headers=headers)
-            if res_dinamica.status_code == 200:
-                resultado = res_dinamica.json()
-                return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
-                
-    raise Exception("No se pudo conectar con los modelos de Gemini API.")
+    res = requests.post(url, json=payload, headers=headers, timeout=10)
+    
+    if res.status_code == 200:
+        resultado = res.json()
+        try:
+            return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
+        except (KeyError, IndexError):
+            raise Exception("Formato de respuesta inesperado por parte de la API.")
+    else:
+        raise Exception(f"Error HTTP {res.status_code}: {res.text}")
     
 # ==========================================
 #     BANCO DE CASOS MINEROS
@@ -213,7 +191,7 @@ with col_datos:
 with col_interactiva:
     tab1, tab2 = st.tabs(["💬 Chat Socrático", "📝 Examen Personalizado"])
     
-    with tab1:
+   with tab1:
         st.subheader("Discusión de Casos con el CFO")
         
         chat_container = st.container(height=400)
@@ -223,21 +201,18 @@ with col_interactiva:
                     with st.chat_message(msg["role"]):
                         st.write(msg["content"])
 
-        if user_input := st.chat_input("Escribe tu análisis al CFO..."):
+        if user_input := st.chat_input("Escribe tu propuesta al CFO..."):
+            # Mostrar el mensaje del estudiante en pantalla
             with chat_container:
                 st.chat_message("user").write(user_input)
                 
+            # Guardar el mensaje del usuario en la memoria de sesión
             st.session_state.messages.append({"role": "user", "content": user_input})
             
             try:
-                with st.spinner("El CFO evalúa tu respuesta..."):
-                    prompt_completo = f"INSTRUCCIONES DE ROL:\n{SYSTEM_INSTRUCTIONS}\n\nHISTORIAL DE LA CONVERSACIÓN:\n"
-                    for msg in st.session_state.messages:
-                        rol = "CFO (Tú)" if msg["role"] == "assistant" else "Estudiante"
-                        prompt_completo += f"{rol}: {msg['content']}\n"
-                    prompt_completo += "\nCFO (Tú): Responde al último comentario del estudiante de forma socrática, directo en español y sin mostrar borradores."
-                    
-                    respuesta_texto = llamar_gemini_api(prompt_completo)
+                with st.spinner("El CFO evalúa tu propuesta..."):
+                    # Enviamos todo el historial formateado correctamente
+                    respuesta_texto = llamar_gemini_api(st.session_state.messages)
                     
                 with chat_container:
                     st.chat_message("assistant").write(respuesta_texto)
@@ -245,7 +220,7 @@ with col_interactiva:
                 st.session_state.messages.append({"role": "assistant", "content": respuesta_texto})
                 
             except Exception as e:
-                st.error(f"Error al enviar mensaje a Gemini: {e}")
+                st.error(f"Error en la interacción: {e}")
                 
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
