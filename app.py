@@ -62,7 +62,7 @@ if not st.session_state.autenticado:
 #  FUNCIÓN DE CONEXIÓN DINÁMICA A GEMINI API
 # ==========================================
 def llamar_gemini_api(prompt_texto):
-    """Realiza la consulta a la API de Gemini exigiendo solo el mensaje final en español."""
+    """Realiza la consulta a la API de Gemini utilizando system_instruction para evitar borradores."""
     
     modelos_a_probar = [
         "gemini-1.5-flash",
@@ -72,16 +72,28 @@ def llamar_gemini_api(prompt_texto):
     
     headers = {'Content-Type': 'application/json'}
     
-    # Instrucción estricta para evitar que muestre el borrador o pensamientos en inglés
-    instruccion_formato = (
-        "INSTRUCCIÓN OBLIGATORIA DE FORMATO: Responde EXCLUSIVAMENTE con el mensaje final dirigido al estudiante en español. "
-        "NO incluyas tu proceso de pensamiento, ni borrador, ni etiquetas en inglés como 'Draft 1', 'Step 1', 'Goal:', 'Persona:' etc. "
-        "Habla directamente como el CFO en español.\n\n"
-    )
+    # Instrucción de sistema separada (System Prompt oficial de Gemini)
+    system_instruction = {
+        "parts": [
+            {
+                "text": (
+                    "Asume el rol de Director de Finanzas (CFO) Corporativo de una gran compañía minera y Tutor Académico. "
+                    "Tu objetivo es guiar al estudiante de manera socrática en la asignatura de Análisis de Estados Financieros "
+                    "para la Toma de Decisiones en el Sector Minero Peruano bajo Volatilidad Global. "
+                    "REGLAS STRICTAS: Responde ÚNICAMENTE con la respuesta final en español. Jamás incluyas tu borrador, "
+                    "pensamientos, etiquetas en inglés ni explicaciones de tu proceso mental. "
+                    "Habla directamente como el CFO al estudiante."
+                )
+            }
+        ]
+    }
     
     payload = {
-        "contents": [{"parts": [{"text": instruccion_formato + prompt_texto}]}],
-        "generationConfig": {"temperature": 0.7}
+        "system_instruction": system_instruction,
+        "contents": [{"parts": [{"text": prompt_texto}]}],
+        "generationConfig": {
+            "temperature": 0.7
+        }
     }
     
     for modelo in modelos_a_probar:
@@ -91,15 +103,15 @@ def llamar_gemini_api(prompt_texto):
             resultado = res.json()
             try:
                 texto_respuesta = resultado['candidates'][0]['content']['parts'][0]['text']
-                # Si por alguna razón incluye pensamiento, nos quedamos solo con la parte final
+                # Filtro de seguridad adicional si el modelo incluye marcas de borrador
                 if "Draft" in texto_respuesta or "Step 1:" in texto_respuesta:
                     partes = texto_respuesta.split("\n\n")
                     texto_respuesta = partes[-1]
-                return texto_respuesta
+                return texto_respuesta.strip()
             except (KeyError, IndexError):
                 continue
 
-    # Fallback dinámico si fallan los nombres predeterminados
+    # Fallback dinámico
     url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key_segura}"
     res_lista = requests.get(url_lista)
     if res_lista.status_code == 200:
@@ -114,10 +126,10 @@ def llamar_gemini_api(prompt_texto):
             res_dinamica = requests.post(url_dinamica, json=payload, headers=headers)
             if res_dinamica.status_code == 200:
                 resultado = res_dinamica.json()
-                return resultado['candidates'][0]['content']['parts'][0]['text']
+                return resultado['candidates'][0]['content']['parts'][0]['text'].strip()
                 
     raise Exception("No se pudo conectar con los modelos de Gemini API.")
-
+    
 # ==========================================
 #     BANCO DE CASOS MINEROS
 # ==========================================
