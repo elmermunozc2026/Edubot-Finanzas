@@ -92,48 +92,45 @@ CASOS_MINEROS = [
     }
 ]
 
-# Inicialización de caso y mensajes limpios
 if "caso_seleccionado" not in st.session_state:
     st.session_state.caso_seleccionado = random.choice(CASOS_MINEROS)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
 
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN DINÁMICA CON EL SDK
+#  FUNCIÓN DE CONEXIÓN CON HISTORIAL LIMPIO
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a Gemini usando el SDK oficial con descubrimiento dinámico de modelos."""
+    """Envía la conversación a Gemini aislando las reglas en system_instruction."""
     
     system_instruction = (
-        f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera. "
-        f"Escenario actual: {caso_info['titulo']} - {caso_info['entorno']}. "
+        f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico. "
+        f"Estás evaluando al estudiante en Análisis Financiero.\n"
+        f"Escenario: {caso_info['titulo']} - {caso_info['entorno']}.\n"
         f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-        "REGLAS ABSOLUTAS DE RESPUESTA:\n"
-        "1. Responde SIEMPRE en español, directo al estudiante, con tono profesional de CFO y método socrático.\n"
-        "2. JAMÁS escribas análisis internos, notas de pensamiento, 'Goal:', 'User says:', 'Drafts', 'Context:' ni frases en inglés.\n"
-        "3. Mantén tus respuestas en un rango conciso (máximo 2 a 3 párrafos cortos) con preguntas pedagógicas."
+        "REGLAS OBLIGATORIAS:\n"
+        "1. Responde ÚNICAMENTE en español y directo al estudiante.\n"
+        "2. Mantén tono profesional de CFO, usándote a ti mismo como 'yo' (el CFO).\n"
+        "3. Usa el método socrático: guía con preguntas analíticas sobre caja, capital de trabajo e impacto operativo.\n"
+        "4. PROHIBIDO imprimir notas internas, 'Goal:', 'User says:', 'Drafts', 'Context:' o razonamiento en inglés."
     )
 
-    # Formatear el historial para el SDK
+    # Formatear el historial garantizando roles limpios
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
         contents.append({"role": role, "parts": [m["content"]]})
 
-    # Lista de nombres preferidos para Gemini 2.0
-    modelos_preferidos = [
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-2.5-flash"
-    ]
+    modelos_disponibles = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
 
-    # 1. Intentar con la lista preferida de v2.0
-    for nombre_modelo in modelos_preferidos:
+    for mod in modelos_disponibles:
         try:
             model = genai.GenerativeModel(
-                model_name=nombre_modelo,
+                model_name=mod,
                 system_instruction=system_instruction
             )
             response = model.generate_content(
@@ -144,8 +141,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 )
             )
             texto = response.text.strip()
-
-            # Filtro anti-borradores internos
+            
+            # Filtro secundario de seguridad
             if any(k in texto for k in ["User says:", "Draft", "Goal:", "Context:"]):
                 lineas = texto.split("\n")
                 lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
@@ -155,34 +152,20 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         except Exception:
             continue
 
-    # 2. Fallback dinámico: Buscar cualquier modelo soportado en la API Key
+    # Fallback dinámico por si cambian los modelos
     try:
-        modelos_disponibles = [
-            m.name for m in genai.list_models() 
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        
-        for m_nombre in modelos_disponibles:
+        modelos_activos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        for m_activo in modelos_activos:
             try:
-                model = genai.GenerativeModel(
-                    model_name=m_nombre,
-                    system_instruction=system_instruction
-                )
-                response = model.generate_content(
-                    contents,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.4,
-                        max_output_tokens=500
-                    )
-                )
+                model = genai.GenerativeModel(model_name=m_activo, system_instruction=system_instruction)
+                response = model.generate_content(contents, generation_config=genai.types.GenerationConfig(temperature=0.4, max_output_tokens=500))
                 return response.text.strip()
             except Exception:
                 continue
-
     except Exception as e:
-        raise Exception(f"No se pudieron consultar los modelos activos: {e}")
+        raise Exception(f"Error al conectar con la API: {e}")
 
-    raise Exception("No hay modelos de generación de texto disponibles actualmente en tu API Key.")
+    raise Exception("No hay modelos disponibles en este momento.")
 
 # ==========================================
 #     PANEL LATERAL
@@ -226,7 +209,7 @@ with col_interactiva:
         
         chat_container = st.container(height=400)
         with chat_container:
-            # Mensaje de bienvenida inicial fijo en la interfaz
+            # Mensaje de bienvenida inicial (se muestra en pantalla pero no contamina el historial)
             st.chat_message("assistant").write(f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso_actual['mensaje_inicial']}")
             
             # Historial interactivo
@@ -254,7 +237,7 @@ with col_interactiva:
                 
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
-        st.write("El CFO generará preguntas de opción múltiple basadas en la discusión.")
+        st.write("El CFO generará preguntas de opción múltiple basadas en la discusión realizada.")
         
         if st.button("Generar mi Examen Único"):
             prompt_evaluacion = (
@@ -264,6 +247,11 @@ with col_interactiva:
             )
             try:
                 with st.spinner("El CFO está redactando tus preguntas..."):
+                    # Limpiamos las claves anteriores del formulario para no dejar respuestas pre-seleccionadas
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("p_"):
+                            del st.session_state[k]
+                            
                     historial_eval = st.session_state.messages + [{"role": "user", "content": prompt_evaluacion}]
                     response_json = llamar_gemini_api(historial_eval, caso_actual)
                     response_json = response_json.replace("```json", "").replace("```", "").strip()
@@ -277,12 +265,22 @@ with col_interactiva:
             with st.form("formulario_evaluacion"):
                 for idx, item in enumerate(st.session_state.preguntas_examen):
                     st.markdown(f"**Pregunta {idx+1}:** {item['pregunta']}")
-                    respuestas_usuario[item['id']] = st.radio("Selecciona tu respuesta:", options=item['opciones'], key=f"p_{item['id']}")
+                    # index=None hace que NINGUNA alternativa aparezca marcada por defecto
+                    respuestas_usuario[item['id']] = st.radio(
+                        "Selecciona tu respuesta:", 
+                        options=item['opciones'], 
+                        index=None, 
+                        key=f"p_{item['id']}"
+                    )
                 st.write("---")
                 enviar_evaluacion = st.form_submit_button("Enviar Respuestas al Docente")
                 
                 if enviar_evaluacion:
-                    respuestas_correctas = sum(1 for item in st.session_state.preguntas_examen if respuestas_usuario[item['id']] == item['correcta'])
-                    total_preguntas = len(st.session_state.preguntas_examen)
-                    nota_final = (respuestas_correctas / total_preguntas) * 20
-                    st.metric(label="Calificación", value=f"{nota_final:.1f} / 20.0")
+                    # Validar si el alumno dejó preguntas sin responder
+                    if any(v is None for v in respuestas_usuario.values()):
+                        st.warning("Por favor, responde todas las preguntas antes de enviar.")
+                    else:
+                        respuestas_correctas = sum(1 for item in st.session_state.preguntas_examen if respuestas_usuario[item['id']] == item['correcta'])
+                        total_preguntas = len(st.session_state.preguntas_examen)
+                        nota_final = (respuestas_correctas / total_preguntas) * 20
+                        st.metric(label="Calificación Obtendida", value=f"{nota_final:.1f} / 20.0")
