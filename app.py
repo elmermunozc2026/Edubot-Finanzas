@@ -58,34 +58,59 @@ def llamar_gemini_api(prompt_texto):
         raise Exception(f"Error HTTP {response.status_code}: {response.text}")
 
 # ==========================================
-#      CONTROL DE ACCESO (LOGIN)
+#  FUNCIÓN DE CONEXIÓN DINÁMICA A GEMINI API
 # ==========================================
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-
-if not st.session_state.autenticado:
-    st.title("🔐 Acceso Autorizado - Edubot Finanzas")
-    st.write("Por favor, introduce tus credenciales de estudiante para ingresar a la plataforma de evaluación.")
+def llamar_gemini_api(prompt_texto):
+    """Detecta automáticamente el modelo disponible para la API Key y realiza la consulta."""
     
-    with st.form("formulario_login"):
-        correo_input = st.text_input("Correo electrónico institucional:").strip().lower()
-        password_input = st.text_input("Contraseña temporal del curso:", type="password")
-        boton_ingresar = st.form_submit_button("Ingresar al Edubot")
+    # 1. Intentar con modelos estándar conocidos
+    modelos_a_probar = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-1.0-pro"
+    ]
+    
+    headers = {'Content-Type': 'application/json'}
+    payload = {
+        "contents": [{"parts": [{"text": prompt_texto}]}],
+        "generationConfig": {"temperature": 0.7}
+    }
+    
+    # Probar cada modelo de la lista
+    for modelo in modelos_a_probar:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key_segura}"
+        res = requests.post(url, json=payload, headers=headers)
+        if res.status_code == 200:
+            resultado = res.json()
+            try:
+                return resultado['candidates'][0]['content']['parts'][0]['text']
+            except (KeyError, IndexError):
+                continue
+
+    # 2. Si ninguno de los anteriores funcionó, consultar a la API la lista de modelos activos para esta Key
+    url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key_segura}"
+    res_lista = requests.get(url_lista)
+    
+    if res_lista.status_code == 200:
+        datos_modelos = res_lista.json()
+        modelos_disponibles = [
+            m['name'].replace('models/', '') 
+            for m in datos_modelos.get('models', []) 
+            if 'generateContent' in m.get('supportedGenerationMethods', [])
+        ]
         
-        if boton_ingresar:
-            password_valida = st.secrets["accesos_alumnos"]["password_temporal"]
-            correos_validos = [c.lower() for c in st.secrets["accesos_alumnos"]["correos_autorizados"]]
-            
-            if correo_input in correos_validos and password_input == password_valida:
-                st.session_state.autenticado = True
-                st.session_state.correo_usuario = correo_input
-                nombre_defecto = correo_input.split("@")[0].replace(".", " ").title()
-                st.session_state.nombre_estudiante = nombre_defecto
-                st.success("¡Acceso concedido!")
-                st.rerun()
-            else:
-                st.error("El correo no está registrado como autorizado o la contraseña es incorrecta.")
-    st.stop()
+        # Intentar con el primer modelo válido que retorne Google
+        for m_valido in modelos_disponibles:
+            url_dinamica = f"https://generativelanguage.googleapis.com/v1beta/models/{m_valido}:generateContent?key={api_key_segura}"
+            res_dinamica = requests.post(url_dinamica, json=payload, headers=headers)
+            if res_dinamica.status_code == 200:
+                resultado = res_dinamica.json()
+                return resultado['candidates'][0]['content']['parts'][0]['text']
+                
+        raise Exception(f"Modelos permitidos para tu API Key: {modelos_disponibles}. Ninguno aceptó la petición.")
+    else:
+        raise Exception(f"Error al verificar la API Key ({res_lista.status_code}): {res_lista.text}")
 
 # ==========================================
 #      BANCO DE CASOS MINEROS
