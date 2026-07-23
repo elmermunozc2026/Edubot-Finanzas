@@ -1,8 +1,8 @@
 import streamlit as st
-import requests
 import pandas as pd
 import json
 import random
+import google.generativeai as genai
 
 # ==========================================
 #      CONFIGURACIÓN DE LA PÁGINA
@@ -16,6 +16,7 @@ st.set_page_config(
 # ACCESO SEGURO A LA API KEY
 if "GEMINI_API_KEY" in st.secrets:
     api_key_segura = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key_segura)
 else:
     st.error("Error de configuración: No se encontró la API Key en los secretos del servidor.")
     st.stop()
@@ -100,71 +101,68 @@ if "messages" not in st.session_state:
     st.session_state.preguntas_examen = None
 
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN A GEMINI (ACTUALIZADA)
+#  FUNCIÓN DE CONEXIÓN CON LIBRERÍA OFICIAL
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Envía la conversación a Gemini con modelos activos v2.0 y sin rutas obsoletas."""
+    """Llama a Gemini usando el SDK oficial de Google, garantizando compatibilidad y velocidad."""
     
-    headers = {'Content-Type': 'application/json'}
-    
-    # Construcción limpia del historial
-    contents_gemini = []
+    system_instruction = (
+        f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera. "
+        f"Escenario actual: {caso_info['titulo']} - {caso_info['entorno']}. "
+        f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
+        "REGLAS ABSOLUTAS DE RESPUESTA:\n"
+        "1. Responde SIEMPRE en español, directo al estudiante, con tono profesional de CFO y método socrático.\n"
+        "2. JAMÁS escribas análisis internos, notas de pensamiento, 'Goal:', 'User says:', 'Drafts', 'Context:' ni frases en inglés.\n"
+        "3. Mantén tus respuestas en un rango conciso (máximo 2 a 3 párrafos cortos) con preguntas pedagógicas."
+    )
+
+    # Configuración del modelo con el SDK oficial
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=system_instruction
+    )
+
+    # Formatear el historial para el SDK
+    contents = []
     for m in historial_mensajes:
-        role_gemini = "user" if m["role"] == "user" else "model"
-        contents_gemini.append({
-            "role": role_gemini,
-            "parts": [{"text": m["content"]}]
-        })
-        
-    system_instruction = {
-        "parts": [{
-            "text": (
-                f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera. "
-                f"Escenario actual: {caso_info['titulo']} - {caso_info['entorno']}. "
-                f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-                "REGLAS ABSOLUTAS DE RESPUESTA:\n"
-                "1. Responde SIEMPRE en español, directo al estudiante, con tono profesional de CFO y método socrático.\n"
-                "2. JAMÁS escribas análisis internos, notas de pensamiento, 'Goal:', 'User says:', 'Drafts', 'Context:' ni frases en inglés.\n"
-                "3. Mantén tus respuestas en un rango conciso (máximo 2 a 3 párrafos cortos) con preguntas pedagógicas."
+        role = "user" if m["role"] == "user" else "model"
+        contents.append({"role": role, "parts": [m["content"]]})
+
+    try:
+        response = model.generate_content(
+            contents,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.4,
+                max_output_tokens=500
             )
-        }]
-    }
-    
-    payload = {
-        "system_instruction": system_instruction,
-        "contents": contents_gemini,
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 400
-        }
-    }
-    
-    # Lista de modelos vigentes en la API v1beta
-    modelos_disponibles = [
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite"
-    ]
-    
-    for mod in modelos_disponibles:
+        )
+        texto = response.text.strip()
+
+        # Filtro de seguridad anti-pensamiento en texto
+        if any(k in texto for k in ["User says:", "Draft", "Goal:", "Context:"]):
+            lineas = texto.split("\n")
+            lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
+            texto = "\n".join(lineas_limpias).strip()
+
+        return texto
+
+    except Exception as e:
+        # Fallback a gemini-1.5-pro si gemini-1.5-flash no estuviera disponible en la cuenta
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={api_key_segura}"
-            res = requests.post(url, json=payload, headers=headers, timeout=20)
-            
-            if res.status_code == 200:
-                resultado = res.json()
-                texto = resultado['candidates'][0]['content']['parts'][0]['text'].strip()
-                
-                # Filtro de seguridad anti-pensamiento en texto
-                if "User says:" in texto or "Draft" in texto or "Goal:" in texto:
-                    lineas = texto.split("\n")
-                    lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
-                    texto = "\n".join(lineas_limpias).strip()
-                    
-                return texto
-        except Exception:
-            continue
-            
-    raise Exception("No se pudo obtener respuesta de los modelos de Google disponibles. Por favor, intenta de nuevo.")
+            model_alt = genai.GenerativeModel(
+                model_name="gemini-1.5-pro",
+                system_instruction=system_instruction
+            )
+            response = model_alt.generate_content(
+                contents,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.4,
+                    max_output_tokens=500
+                )
+            )
+            return response.text.strip()
+        except Exception as ex:
+            raise Exception(f"Error al conectar con la API de Gemini: {ex}")
 
 # ==========================================
 #     PANEL LATERAL
