@@ -101,41 +101,35 @@ if "messages" not in st.session_state:
 if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
 
-import re
 import google.generativeai as genai
+import re
 
 # ==========================================
 #  FUNCIÓN DE LIMPIEZA DE METADATOS Y DRAFTS
 # ==========================================
 
 def sanitizar_texto_cfo(texto):
-    """Limpia metadatos, borra borradores en inglés y deja solo la respuesta final en español."""
+    """Limpia borradores internos y metadatos en inglés."""
     if not texto:
         return ""
     
-    # 1. Si el modelo incluye un borrador con "Drafting", "Refining" o "Response:", nos quedamos con la última parte
+    # Si hay un bloque de borrador/refinamiento, conservar la última parte
     for separador in ["Drafting the response:", "Refining:", "Response:", "Draft:"]:
         if separador in texto:
             texto = texto.split(separador)[-1]
 
-    # 2. Eliminar cualquier línea que contenga etiquetas de control
-    lineas = texto.split("\n")
-    lineas_limpias = []
-    
     etiquetas_prohibidas = [
         "role:", "scenario:", "financial data:", "user question:", "rules:", 
-        "step 1:", "step 2:", "step 3:", "applying the socratic", "drafting",
-        "current assets", "current liabilities", "net income", "cogs"
+        "step 1:", "step 2:", "step 3:", "applying the socratic", "drafting"
     ]
     
-    for linea in lineas:
-        l_lower = linea.strip().lower()
-        # Ignorar líneas que comiencen con las etiquetas internas
-        if any(l_lower.startswith(tag) for tag in etiquetas_prohibidas):
-            continue
-        lineas_limpias.append(linea)
-        
-    resultado = "\n".join(lineas_limpias).strip()
+    lineas = texto.split("\n")
+    lineas_limpias = [
+        l for l in lineas 
+        if not any(l.strip().lower().startswith(tag) for tag in etiquetas_prohibidas)
+    ]
+    
+    resultado = "\n\n".join(lineas_limpias).strip()
     return resultado if resultado else texto.strip()
 
 # ==========================================
@@ -143,53 +137,55 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Envía el historial sanitizado a Gemini y filtra la respuesta."""
+    """Llama a la API de Gemini utilizando el método nativo de Chat."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
         f"Escenario: {caso_info['titulo']} - {caso_info['entorno']}.\n"
         f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-        "REGLAS OBLIGATORIAS:\n"
-        "1. Responde EXCLUSIVAMENTE en español de forma directa al estudiante.\n"
-        "2. Usa tono profesional de CFO y método socrático.\n"
-        "3. PROHIBIDO GENERAR BORRADORES, NOTAS INTERNAS, 'Role:', 'Scenario:' O ESTRUCTURAS EN INGLÉS."
+        "REGLAS:\n"
+        "1. Responde SIEMPRE en español, directamente al estudiante, con tono profesional de CFO y método socrático.\n"
+        "2. PROHIBIDO incluir notas de pensamiento, 'Role:', 'Scenario:' o borradores en inglés."
     )
 
-    # SANITIZACIÓN DEL HISTORIAL: Limpiamos los mensajes antiguos antes de enviarlos a la API
-    contents = []
-    for m in historial_mensajes:
+    # Convertir el historial al formato nativo de la API de chat
+    history_chat = []
+    for m in historial_mensajes[:-1]:  # Todo el historial salvo el último mensaje del usuario
         role = "user" if m["role"] == "user" else "model"
-        contenido_limpio = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
-        contents.append({"role": role, "parts": [contenido_limpio]})
+        history_chat.append({"role": role, "parts": [sanitizar_texto_cfo(m["content"])]})
 
-    modelos = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]
+    ultimo_mensaje_usuario = historial_mensajes[-1]["content"]
+
+    modelos = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    ultimo_error_detectado = None
 
     for mod in modelos:
         try:
-            model = genai.GenerativeModel(model_name=mod, system_instruction=system_instruction)
-            response = model.generate_content(
-                contents,
-                generation_config=genai.types.GenerationConfig(temperature=0.2, max_output_tokens=500)
+            model = genai.GenerativeModel(
+                model_name=mod,
+                system_instruction=system_instruction
             )
             
-            # Extraer texto de forma segura
-            texto_raw = ""
-            if hasattr(response, 'candidates') and response.candidates:
-                for part in response.candidates[0].content.parts:
-                    if getattr(part, 'thought', False):
-                        continue
-                    if hasattr(part, 'text') and part.text:
-                        texto_raw += part.text
+            # Iniciar sesión de chat con el historial acumulado
+            chat = model.start_chat(history=history_chat)
             
-            if not texto_raw.strip() and hasattr(response, 'text'):
-                texto_raw = response.text
+            response = chat.send_message(
+                ultimo_mensaje_usuario,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=600
+                )
+            )
 
-            return sanitizar_texto_cfo(texto_raw)
-            
-        except Exception:
+            if response and response.text:
+                return sanitizar_texto_cfo(response.text)
+
+        except Exception as e:
+            ultimo_error_detectado = str(e)
             continue
 
-    raise Exception("Error temporal de conexión con el servicio de IA.")
+    # Si falla la llamada por chat, mostrar el detalle técnico del error para diagnosticarlo
+    raise Exception(f"Error de conexión con la API: {ultimo_error_detectado}")
 
 # ==========================================
 #     PANEL LATERAL
