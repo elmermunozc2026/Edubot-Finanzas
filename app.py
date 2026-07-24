@@ -101,29 +101,72 @@ if "messages" not in st.session_state:
 if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
 
+import re
+import google.generativeai as genai
+
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN A PRUEBA DE BORRADORES
+#  FUNCIÓN DE LIMPIEZA RIGUROSA
+# ==========================================
+def limpiar_respuesta_cfo(texto_raw):
+    """Elimina cualquier bloque de razonamiento interno, drafts o etiquetas en inglés."""
+    if not texto_raw:
+        return ""
+    
+    # 1. Si el texto contiene la sección refinada entre comillas o al final
+    # Buscamos si la API escribió un "Refining:" o "Draft:" y nos quedamos SOLO con lo que está después
+    if "Refining" in texto_raw:
+        partes = texto_raw.split("Refining")
+        texto_raw = partes[-1]
+    
+    # 2. Eliminar líneas que contengan metadatos del sistema
+    patrones_basura = [
+        r"^User asks:.*$", r"^Role:.*$", r"^Scenario:.*$", r"^Constraint:.*$", 
+        r"^Definition:.*$", r"^Components:.*$", r"^Importance:.*$", r"^Direct Answer:.*$", 
+        r"^Contextualization:.*$", r"^Socratic Method:.*$", r"^Draft \d+:.*$", 
+        r"^Spanish only\?.*$", r"^Direct to student\?.*$", r"^Role assumed\?.*$", r"^S$"
+    ]
+    
+    lineas = texto_raw.split("\n")
+    lineas_limpias = []
+    
+    for line in lineas:
+        line_str = line.strip()
+        # Verificar si la línea coincide con algún patrón de metadatos
+        es_basura = any(re.match(patron, line_str, re.IGNORECASE) for patron in patrones_basura)
+        if not es_basura and line_str:
+            lineas_limpias.append(line_str)
+            
+    resultado = "\n\n".join(lineas_limpias).strip()
+    
+    # Si después del filtro el resultado quedó vacío, retornamos un fallback limpio
+    if not resultado:
+        return "Disculpa la interrupción. Respecto al concepto que consultas: en nuestro escenario actual con la caída del precio del cobre, ¿cómo impacta directamente en nuestro costo operativo y margen de caja?""
+        
+    return resultado
+
+
+# ==========================================
+#  FUNCIÓN DE CONEXIÓN ACTUALIZADA
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a Gemini aislando por completo los bloques de pensamiento (thinking) en inglés."""
+    """Llama a Gemini y procesa la salida a través del filtro de limpieza de texto."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico. "
         f"Estás evaluando al estudiante en Análisis Financiero.\n"
         f"Escenario: {caso_info['titulo']} - {caso_info['entorno']}.\n"
         f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-        "REGLAS ABSOLUTAS DE RESPUESTA:\n"
-        "1. Responde ÚNICAMENTE en español y de forma directa al estudiante.\n"
-        "2. Asume tu rol de CFO ('yo'). Sé profesional y utiliza el método socrático.\n"
-        "3. PROHIBIDO IMPRIMIR NOTAS DE RAZONAMIENTO INTERNO, 'Role:', 'Goal:', 'Context:', 'Scenario:' O FRASES EN INGLÉS."
+        "REGLAS:\n"
+        "1. Responde SIEMPRE en español, directo al estudiante, con tono profesional de CFO y método socrático.\n"
+        "2. NUNCA incluyas notas de pensamiento, metas, ni borradores."
     )
 
-    # Formatear el historial garantizando roles limpios
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
         contents.append({"role": role, "parts": [m["content"]]})
 
+    # Usamos gemini-1.5-flash primero si está disponible en la librería cliente, o 2.0
     modelos_disponibles = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
 
     for mod in modelos_disponibles:
@@ -133,57 +176,22 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 system_instruction=system_instruction
             )
             
-            # Forzar la generación sin bloques de pensamiento
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.2,
-                    max_output_tokens=600
+                    max_output_tokens=500
                 )
             )
             
-            # Extraer únicamente el texto de respuesta al usuario
-            texto_limpio = ""
-            if hasattr(response, 'candidates') and response.candidates:
-                partes = response.candidates[0].content.parts
-                for p in partes:
-                    # Ignorar cualquier objeto etiquetado como pensamiento interno
-                    if getattr(p, 'thought', False):
-                        continue
-                    if hasattr(p, 'text') and p.text:
-                        texto_limpio += p.text
-
-            if not texto_limpio.strip():
-                texto_limpio = response.text.strip()
-
-            # Filtro secundario estricto por palabras clave de metadatos
-            if any(k in texto_limpio for k in ["Role:", "Goal:", "Context:", "Scenario:", "Student's Input:", "Missing the"]):
-                lineas = texto_limpio.split("\n")
-                lineas_validas = [
-                    l for l in lineas 
-                    if not any(k in l for k in ["Role:", "Goal:", "Context:", "Scenario:", "Financial Data:", "Student's Input:", "Missing the", "Step 1:", "Step 2:", "Step 3:"])
-                ]
-                texto_limpio = "\n".join(lineas_validas).strip()
-
-            return texto_limpio
+            # Pasamos la respuesta bruta por nuestro filtro en Python
+            texto_procesado = limpiar_respuesta_cfo(response.text)
+            return texto_procesado
 
         except Exception:
             continue
 
-    # Fallback dinámico si los modelos principales presentan interrupción
-    try:
-        modelos_activos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for m_activo in modelos_activos:
-            try:
-                model = genai.GenerativeModel(model_name=m_activo, system_instruction=system_instruction)
-                response = model.generate_content(contents, generation_config=genai.types.GenerationConfig(temperature=0.2, max_output_tokens=600))
-                return response.text.strip()
-            except Exception:
-                continue
-    except Exception as e:
-        raise Exception(f"Error al conectar con la API: {e}")
-
-    raise Exception("No hay modelos disponibles en este momento.")
+    raise Exception("No se pudo obtener una respuesta limpia de la API.")
 
 # ==========================================
 #     PANEL LATERAL
