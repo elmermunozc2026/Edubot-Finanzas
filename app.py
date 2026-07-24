@@ -107,131 +107,89 @@ import google.generativeai as genai
 # ==========================================
 #  FUNCIÓN DE LIMPIEZA DE METADATOS Y DRAFTS
 # ==========================================
-def limpiar_respuesta_cfo(texto_raw):
-    """Filtra etiquetas en inglés, borradores y bloques de razonamiento interno."""
-    if not texto_raw:
+
+def sanitizar_texto_cfo(texto):
+    """Limpia metadatos, borra borradores en inglés y deja solo la respuesta final en español."""
+    if not texto:
         return ""
     
-    # Si la API colocó el texto refinado al final
-    if "Refining" in texto_raw:
-        partes = texto_raw.split("Refining")
-        texto_raw = partes[-1]
-    
-    # Patrones de metadatos o instrucciones internas que debemos ignorar
-    patrones_basura = [
-        r"^User asks:.*$", r"^Role:.*$", r"^Scenario:.*$", r"^Constraint:.*$", 
-        r"^Definition:.*$", r"^Components:.*$", r"^Importance:.*$", r"^Direct Answer:.*$", 
-        r"^Contextualization:.*$", r"^Socratic Method:.*$", r"^Draft \d+:.*$", 
-        r"^Spanish only\?.*$", r"^Direct to student\?.*$", r"^Role assumed\?.*$", r"^S$"
-    ]
-    
-    lineas = texto_raw.split("\n")
+    # 1. Si el modelo incluye un borrador con "Drafting", "Refining" o "Response:", nos quedamos con la última parte
+    for separador in ["Drafting the response:", "Refining:", "Response:", "Draft:"]:
+        if separador in texto:
+            texto = texto.split(separador)[-1]
+
+    # 2. Eliminar cualquier línea que contenga etiquetas de control
+    lineas = texto.split("\n")
     lineas_limpias = []
     
-    for line in lineas:
-        line_str = line.strip()
-        es_basura = any(re.match(patron, line_str, re.IGNORECASE) for patron in patrones_basura)
-        if not es_basura and line_str:
-            lineas_limpias.append(line_str)
-            
-    resultado = "\n\n".join(lineas_limpias).strip()
+    etiquetas_prohibidas = [
+        "role:", "scenario:", "financial data:", "user question:", "rules:", 
+        "step 1:", "step 2:", "step 3:", "applying the socratic", "drafting",
+        "current assets", "current liabilities", "net income", "cogs"
+    ]
     
-    # Si el filtro fue demasiado estricto, devolvemos el texto original sin romper el flujo
-    if not resultado:
-        return texto_raw.strip()
+    for linea in lineas:
+        l_lower = linea.strip().lower()
+        # Ignorar líneas que comiencen con las etiquetas internas
+        if any(l_lower.startswith(tag) for tag in etiquetas_prohibidas):
+            continue
+        lineas_limpias.append(linea)
         
-    return resultado
-
+    resultado = "\n".join(lineas_limpias).strip()
+    return resultado if resultado else texto.strip()
 
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
+
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a Gemini con extracción segura de candidatos y manejo directo de excepciones."""
+    """Envía el historial sanitizado a Gemini y filtra la respuesta."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
         f"Escenario: {caso_info['titulo']} - {caso_info['entorno']}.\n"
         f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-        "REGLAS:\n"
-        "1. Responde SIEMPRE en español, directo al estudiante, con tono profesional de CFO y método socrático.\n"
-        "2. NUNCA incluyas notas de pensamiento, 'Goal:', 'Role:' ni borradores en inglés."
+        "REGLAS OBLIGATORIAS:\n"
+        "1. Responde EXCLUSIVAMENTE en español de forma directa al estudiante.\n"
+        "2. Usa tono profesional de CFO y método socrático.\n"
+        "3. PROHIBIDO GENERAR BORRADORES, NOTAS INTERNAS, 'Role:', 'Scenario:' O ESTRUCTURAS EN INGLÉS."
     )
 
+    # SANITIZACIÓN DEL HISTORIAL: Limpiamos los mensajes antiguos antes de enviarlos a la API
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [m["content"]]})
+        contenido_limpio = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
+        contents.append({"role": role, "parts": [contenido_limpio]})
 
-    # Lista de modelos compatibles en orden de preferencia
-    modelos_disponibles = [
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash"
-    ]
+    modelos = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]
 
-    ultimo_error = None
-
-    for mod in modelos_disponibles:
+    for mod in modelos:
         try:
-            model = genai.GenerativeModel(
-                model_name=mod,
-                system_instruction=system_instruction
-            )
-            
+            model = genai.GenerativeModel(model_name=mod, system_instruction=system_instruction)
             response = model.generate_content(
                 contents,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.4,
-                    max_output_tokens=600
-                )
+                generation_config=genai.types.GenerationConfig(temperature=0.2, max_output_tokens=500)
             )
             
-            # Extracción segura de texto desde candidates
-            texto_extraido = ""
+            # Extraer texto de forma segura
+            texto_raw = ""
             if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                    for part in candidate.content.parts:
-                        # Omitir si la parte es explícitamente un objeto thought
-                        if getattr(part, 'thought', False):
-                            continue
-                        if hasattr(part, 'text') and part.text:
-                            texto_extraido += part.text
+                for part in response.candidates[0].content.parts:
+                    if getattr(part, 'thought', False):
+                        continue
+                    if hasattr(part, 'text') and part.text:
+                        texto_raw += part.text
+            
+            if not texto_raw.strip() and hasattr(response, 'text'):
+                texto_raw = response.text
 
-            if not texto_extraido.strip():
-                try:
-                    texto_extraido = response.text
-                except Exception:
-                    pass
-
-            if texto_extraido.strip():
-                # Aplicamos la limpieza en Python
-                return limpiar_respuesta_cfo(texto_extraido)
-
-        except Exception as e:
-            ultimo_error = str(e)
+            return sanitizar_texto_cfo(texto_raw)
+            
+        except Exception:
             continue
 
-    # Fallback dinámico si los modelos fijos no respondieron
-    try:
-        modelos_activos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for m_activo in modelos_activos:
-            try:
-                model = genai.GenerativeModel(model_name=m_activo, system_instruction=system_instruction)
-                response = model.generate_content(
-                    contents, 
-                    generation_config=genai.types.GenerationConfig(temperature=0.4, max_output_tokens=600)
-                )
-                if hasattr(response, 'text') and response.text:
-                    return limpiar_respuesta_cfo(response.text)
-            except Exception as e:
-                ultimo_error = str(e)
-                continue
-    except Exception as e:
-        ultimo_error = str(e)
-
-    raise Exception(f"Detalle del error de la API: {ultimo_error}")
+    raise Exception("Error temporal de conexión con el servicio de IA.")
 
 # ==========================================
 #     PANEL LATERAL
