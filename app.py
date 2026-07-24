@@ -115,16 +115,15 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         "REGLAS ABSOLUTAS DE RESPUESTA:\n"
         "1. Responde ÚNICAMENTE en español y de forma directa al estudiante.\n"
         "2. Asume tu rol de CFO ('yo'). Sé profesional y utiliza el método socrático.\n"
-        "3. PROHIBIDO INCLUIR ANÁLISIS INTERNOS, NOTAS DE PENSAMIENTO O FORMATOS COMO 'Role:', 'Goal:', 'Context:' O 'User says:'."
+        "3. PROHIBIDO IMPRIMIR NOTAS DE RAZONAMIENTO INTERNO, 'Role:', 'Goal:', 'Context:', 'Scenario:' O FRASES EN INGLÉS."
     )
 
-    # Formatear el historial garantizando roles limpios de usuario y asistente
+    # Formatear el historial garantizando roles limpios
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
         contents.append({"role": role, "parts": [m["content"]]})
 
-    # Modelos recomendados
     modelos_disponibles = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
 
     for mod in modelos_disponibles:
@@ -134,50 +133,50 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 system_instruction=system_instruction
             )
             
-            # Configuración de generación deshabilitando el presupuesto de "thinking"
+            # Forzar la generación sin bloques de pensamiento
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.3,
+                    temperature=0.2,
                     max_output_tokens=600
                 )
             )
             
-            # Extracción limpia del texto final eliminando cualquier bloque de pensamiento
-            texto_final = ""
+            # Extraer únicamente el texto de respuesta al usuario
+            texto_limpio = ""
             if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                for part in candidate.content.parts:
-                    # Filtramos las partes que no correspondan a borradores de pensamiento
-                    if hasattr(part, 'thought') and part.thought:
-                        continue  # Descarta la cadena de pensamiento interna
-                    if hasattr(part, 'text') and part.text:
-                        texto_final += part.text
+                partes = response.candidates[0].content.parts
+                for p in partes:
+                    # Ignorar cualquier objeto etiquetado como pensamiento interno
+                    if getattr(p, 'thought', False):
+                        continue
+                    if hasattr(p, 'text') and p.text:
+                        texto_limpio += p.text
 
-            if not texto_final.strip():
-                texto_final = response.text.strip()
+            if not texto_limpio.strip():
+                texto_limpio = response.text.strip()
 
-            # Limpieza secundaria en caso de que viniera en formato de texto simple
-            if "Role:" in texto_final or "Goal:" in texto_final or "User says:" in texto_final:
-                lineas = texto_final.split("\n")
-                lineas_filtradas = [
+            # Filtro secundario estricto por palabras clave de metadatos
+            if any(k in texto_limpio for k in ["Role:", "Goal:", "Context:", "Scenario:", "Student's Input:", "Missing the"]):
+                lineas = texto_limpio.split("\n")
+                lineas_validas = [
                     l for l in lineas 
                     if not any(k in l for k in ["Role:", "Goal:", "Context:", "Scenario:", "Financial Data:", "Student's Input:", "Missing the", "Step 1:", "Step 2:", "Step 3:"])
                 ]
-                texto_final = "\n".join(lineas_filtradas).strip()
+                texto_limpio = "\n".join(lineas_validas).strip()
 
-            return texto_final
+            return texto_limpio
 
         except Exception:
             continue
 
-    # Fallback si ningún modelo directo responde
+    # Fallback dinámico si los modelos principales presentan interrupción
     try:
         modelos_activos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         for m_activo in modelos_activos:
             try:
                 model = genai.GenerativeModel(model_name=m_activo, system_instruction=system_instruction)
-                response = model.generate_content(contents, generation_config=genai.types.GenerationConfig(temperature=0.3, max_output_tokens=600))
+                response = model.generate_content(contents, generation_config=genai.types.GenerationConfig(temperature=0.2, max_output_tokens=600))
                 return response.text.strip()
             except Exception:
                 continue
