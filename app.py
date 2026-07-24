@@ -140,7 +140,7 @@ def limpiar_respuesta_cfo(texto_raw):
     
     # Si después del filtro el resultado quedó vacío, retornamos un fallback limpio
     if not resultado:
-        return "Disculpa la interrupción. Respecto al concepto que consultas: en nuestro escenario actual con la caída del precio del cobre, ¿cómo impacta directamente en nuestro costo operativo y margen de caja?""
+        return "Disculpa la interrupción. Respecto al concepto que consultas: en nuestro escenario actual con la caída del precio del cobre, ¿cómo impacta directamente en nuestro costo operativo y margen de caja?"
         
     return resultado
 
