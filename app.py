@@ -102,6 +102,7 @@ if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
 
 import google.generativeai as genai
+import time
 import re
 
 # ==========================================
@@ -131,13 +132,13 @@ def sanitizar_texto_cfo(texto):
     
     resultado = "\n\n".join(lineas_limpias).strip()
     return resultado if resultado else texto.strip()
-
+    
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API de Gemini utilizando el método nativo de Chat."""
+    """Llama a la API de Gemini manejando límites de cuota (429) y alternancia de modelos."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
@@ -148,16 +149,17 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         "2. PROHIBIDO incluir notas de pensamiento, 'Role:', 'Scenario:' o borradores en inglés."
     )
 
-    # Convertir el historial al formato nativo de la API de chat
+    # Preparar el historial
     history_chat = []
-    for m in historial_mensajes[:-1]:  # Todo el historial salvo el último mensaje del usuario
+    for m in historial_mensajes[:-1]:
         role = "user" if m["role"] == "user" else "model"
         history_chat.append({"role": role, "parts": [sanitizar_texto_cfo(m["content"])]})
 
     ultimo_mensaje_usuario = historial_mensajes[-1]["content"]
 
-    modelos = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
-    ultimo_error_detectado = None
+    # Ordenamos poniendo primero modelos más estables para la cuota gratuita
+    modelos = ["gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
+    ultimo_error = None
 
     for mod in modelos:
         try:
@@ -166,14 +168,13 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 system_instruction=system_instruction
             )
             
-            # Iniciar sesión de chat con el historial acumulado
             chat = model.start_chat(history=history_chat)
             
             response = chat.send_message(
                 ultimo_mensaje_usuario,
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.3,
-                    max_output_tokens=600
+                    max_output_tokens=500
                 )
             )
 
@@ -181,11 +182,17 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 return sanitizar_texto_cfo(response.text)
 
         except Exception as e:
-            ultimo_error_detectado = str(e)
+            err_msg = str(e)
+            ultimo_error = err_msg
+            
+            # Si el error es por límite de velocidad/cuota (429), hacemos una breve pausa antes de probar el siguiente modelo
+            if "429" in err_msg or "Quota exceeded" in err_msg:
+                time.sleep(2)  # Pausa táctica de 2 segundos
+                continue
             continue
 
-    # Si falla la llamada por chat, mostrar el detalle técnico del error para diagnosticarlo
-    raise Exception(f"Error de conexión con la API: {ultimo_error_detectado}")
+    raise Exception(f"Límite de cuota o servicio alcanzado. Detalle: {ultimo_error}")
+
 
 # ==========================================
 #     PANEL LATERAL
