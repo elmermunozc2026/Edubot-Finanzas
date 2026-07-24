@@ -102,29 +102,29 @@ if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
 
 # ==========================================
-#  FUNCIÓN DE CONEXIÓN CON HISTORIAL LIMPIO
+#  FUNCIÓN DE CONEXIÓN A PRUEBA DE BORRADORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Envía la conversación a Gemini aislando las reglas en system_instruction."""
+    """Llama a Gemini aislando por completo los bloques de pensamiento (thinking) en inglés."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico. "
         f"Estás evaluando al estudiante en Análisis Financiero.\n"
         f"Escenario: {caso_info['titulo']} - {caso_info['entorno']}.\n"
         f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-        "REGLAS OBLIGATORIAS:\n"
-        "1. Responde ÚNICAMENTE en español y directo al estudiante.\n"
-        "2. Mantén tono profesional de CFO, usándote a ti mismo como 'yo' (el CFO).\n"
-        "3. Usa el método socrático: guía con preguntas analíticas sobre caja, capital de trabajo e impacto operativo.\n"
-        "4. PROHIBIDO imprimir notas internas, 'Goal:', 'User says:', 'Drafts', 'Context:' o razonamiento en inglés."
+        "REGLAS ABSOLUTAS DE RESPUESTA:\n"
+        "1. Responde ÚNICAMENTE en español y de forma directa al estudiante.\n"
+        "2. Asume tu rol de CFO ('yo'). Sé profesional y utiliza el método socrático.\n"
+        "3. PROHIBIDO INCLUIR ANÁLISIS INTERNOS, NOTAS DE PENSAMIENTO O FORMATOS COMO 'Role:', 'Goal:', 'Context:' O 'User says:'."
     )
 
-    # Formatear el historial garantizando roles limpios
+    # Formatear el historial garantizando roles limpios de usuario y asistente
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
         contents.append({"role": role, "parts": [m["content"]]})
 
+    # Modelos recomendados
     modelos_disponibles = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
 
     for mod in modelos_disponibles:
@@ -133,32 +133,51 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 model_name=mod,
                 system_instruction=system_instruction
             )
+            
+            # Configuración de generación deshabilitando el presupuesto de "thinking"
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.4,
-                    max_output_tokens=500
+                    temperature=0.3,
+                    max_output_tokens=600
                 )
             )
-            texto = response.text.strip()
             
-            # Filtro secundario de seguridad
-            if any(k in texto for k in ["User says:", "Draft", "Goal:", "Context:"]):
-                lineas = texto.split("\n")
-                lineas_limpias = [l for l in lineas if not any(k in l for k in ["User says:", "Goal:", "Draft", "Context:", "Step "])]
-                texto = "\n".join(lineas_limpias).strip()
+            # Extracción limpia del texto final eliminando cualquier bloque de pensamiento
+            texto_final = ""
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                for part in candidate.content.parts:
+                    # Filtramos las partes que no correspondan a borradores de pensamiento
+                    if hasattr(part, 'thought') and part.thought:
+                        continue  # Descarta la cadena de pensamiento interna
+                    if hasattr(part, 'text') and part.text:
+                        texto_final += part.text
 
-            return texto
+            if not texto_final.strip():
+                texto_final = response.text.strip()
+
+            # Limpieza secundaria en caso de que viniera en formato de texto simple
+            if "Role:" in texto_final or "Goal:" in texto_final or "User says:" in texto_final:
+                lineas = texto_final.split("\n")
+                lineas_filtradas = [
+                    l for l in lineas 
+                    if not any(k in l for k in ["Role:", "Goal:", "Context:", "Scenario:", "Financial Data:", "Student's Input:", "Missing the", "Step 1:", "Step 2:", "Step 3:"])
+                ]
+                texto_final = "\n".join(lineas_filtradas).strip()
+
+            return texto_final
+
         except Exception:
             continue
 
-    # Fallback dinámico por si cambian los modelos
+    # Fallback si ningún modelo directo responde
     try:
         modelos_activos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         for m_activo in modelos_activos:
             try:
                 model = genai.GenerativeModel(model_name=m_activo, system_instruction=system_instruction)
-                response = model.generate_content(contents, generation_config=genai.types.GenerationConfig(temperature=0.4, max_output_tokens=500))
+                response = model.generate_content(contents, generation_config=genai.types.GenerationConfig(temperature=0.3, max_output_tokens=600))
                 return response.text.strip()
             except Exception:
                 continue
