@@ -138,7 +138,7 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API de Gemini manejando límites de cuota (429) y alternancia de modelos."""
+    """Llama a la API priorizando gemini-1.5-flash para evitar bloqueos por cuota agotada."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
@@ -149,7 +149,6 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         "2. PROHIBIDO incluir notas de pensamiento, 'Role:', 'Scenario:' o borradores en inglés."
     )
 
-    # Preparar el historial
     history_chat = []
     for m in historial_mensajes[:-1]:
         role = "user" if m["role"] == "user" else "model"
@@ -157,11 +156,11 @@ def llamar_gemini_api(historial_mensajes, caso_info):
 
     ultimo_mensaje_usuario = historial_mensajes[-1]["content"]
 
-    # Ordenamos poniendo primero modelos más estables para la cuota gratuita
-    modelos = ["gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
+    # Usamos gemini-1.5-flash como prioridad ya que sus cuotas diarias son independientes
+    modelos_prioritarios = ["gemini-1.5-flash", "gemini-1.5-pro"]
     ultimo_error = None
 
-    for mod in modelos:
+    for mod in modelos_prioritarios:
         try:
             model = genai.GenerativeModel(
                 model_name=mod,
@@ -182,16 +181,11 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 return sanitizar_texto_cfo(response.text)
 
         except Exception as e:
-            err_msg = str(e)
-            ultimo_error = err_msg
-            
-            # Si el error es por límite de velocidad/cuota (429), hacemos una breve pausa antes de probar el siguiente modelo
-            if "429" in err_msg or "Quota exceeded" in err_msg:
-                time.sleep(2)  # Pausa táctica de 2 segundos
-                continue
+            ultimo_error = str(e)
             continue
 
-    raise Exception(f"Límite de cuota o servicio alcanzado. Detalle: {ultimo_error}")
+    raise Exception("Has alcanzado el límite diario gratuito de la API de Google para hoy. Genera una nueva API Key en Google AI Studio para continuar de inmediato.")
+
 
 
 # ==========================================
