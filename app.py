@@ -140,7 +140,7 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API de Gemini usando los modelos activos con fallback transparente."""
+    """Llama a la API probando nombres con prefijo 'models/' y manejo dinámico."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
@@ -151,45 +151,66 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         "2. PROHIBIDO incluir notas de pensamiento, 'Role:', 'Scenario:' o borradores en inglés."
     )
 
-    history_chat = []
-    for m in historial_mensajes[:-1]:
+    # Convertir historial al formato estándar del SDK
+    contents = []
+    for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
-        history_chat.append({"role": role, "parts": [sanitizar_texto_cfo(m["content"])]})
+        contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
+        contents.append({"role": role, "parts": [{"text": contenido}]})
 
-    ultimo_mensaje_usuario = historial_mensajes[-1]["content"]
+    # Lista de nombres exactos que acepta la API de Google
+    modelos_candidatos = [
+        "models/gemini-1.5-flash",
+        "models/gemini-1.5-flash-latest",
+        "models/gemini-2.0-flash",
+        "gemini-1.5-flash"
+    ]
+    
+    ultimo_error = None
 
-    # Modelo principal recomendado para la cuota gratuita
-    modelos_candidatos = ["gemini-1.5-flash", "models/gemini-1.5-flash"]
-    ultimo_error_real = None
-
+    # Intentar con la lista de modelos conocidos
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
                 model_name=mod,
                 system_instruction=system_instruction
             )
-            
-            chat = model.start_chat(history=history_chat)
-            
-            response = chat.send_message(
-                ultimo_mensaje_usuario,
+            response = model.generate_content(
+                contents,
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.3,
                     max_output_tokens=600
                 )
             )
-
             if response and response.text:
                 return sanitizar_texto_cfo(response.text)
-
         except Exception as e:
-            ultimo_error_real = str(e)
-            # Si se encuentra con un límite temporal de tasa por segundo, aguarda 1 segundo y reintenta con el siguiente modelo
-            time.sleep(1)
+            ultimo_error = str(e)
             continue
 
-    # Devolvemos el error en vivo de la API para saber con exactitud qué sucede
-    raise Exception(f"Detalle técnico de la llamada: {ultimo_error_real}")
+    # Si ninguno funciona, listar dinámicamente los modelos que TU clave/librería soporta exactamente
+    try:
+        modelos_disponibles = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        for mod_activo in modelos_disponibles:
+            try:
+                model = genai.GenerativeModel(model_name=mod_activo, system_instruction=system_instruction)
+                response = model.generate_content(
+                    contents,
+                    generation_config=genai.types.GenerationConfig(temperature=0.3, max_output_tokens=600)
+                )
+                if response and response.text:
+                    return sanitizar_texto_cfo(response.text)
+            except Exception as e:
+                ultimo_error = str(e)
+                continue
+    except Exception as e:
+        ultimo_error = str(e)
+
+    raise Exception(f"Detalle técnico de la llamada: {ultimo_error}")
 
 # ==========================================
 #     PANEL LATERAL
