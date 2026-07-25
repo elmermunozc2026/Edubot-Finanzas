@@ -158,8 +158,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
 
     ultimo_mensaje_usuario = historial_mensajes[-1]["content"]
 
-    # Lista de modelos con cuota gratuita activa
-    modelos_candidatos = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    # Excluimos completamente la familia 2.0 para evitar el bloqueo del Free Tier
+    modelos_candidatos = ["gemini-1.5-flash", "gemini-1.5-pro"]
     ultimo_error_real = None
 
     for mod in modelos_candidatos:
