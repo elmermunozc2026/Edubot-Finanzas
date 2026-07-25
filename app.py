@@ -101,9 +101,11 @@ if "messages" not in st.session_state:
 if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
 
-import google.generativeai as genai
-import time
+import os
 import re
+import time
+import streamlit as st
+import google.generativeai as genai
 
 # ==========================================
 #  FUNCIÓN DE LIMPIEZA DE METADATOS Y DRAFTS
@@ -138,7 +140,7 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API priorizando gemini-1.5-flash para evitar bloqueos por cuota agotada."""
+    """Llama a la API de Gemini usando los modelos activos con fallback transparente."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
@@ -156,11 +158,11 @@ def llamar_gemini_api(historial_mensajes, caso_info):
 
     ultimo_mensaje_usuario = historial_mensajes[-1]["content"]
 
-    # Usamos gemini-1.5-flash como prioridad ya que sus cuotas diarias son independientes
-    modelos_prioritarios = ["gemini-1.5-flash", "gemini-1.5-pro"]
-    ultimo_error = None
+    # Lista de modelos con cuota gratuita activa
+    modelos_candidatos = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    ultimo_error_real = None
 
-    for mod in modelos_prioritarios:
+    for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
                 model_name=mod,
@@ -173,7 +175,7 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 ultimo_mensaje_usuario,
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.3,
-                    max_output_tokens=500
+                    max_output_tokens=600
                 )
             )
 
@@ -181,12 +183,13 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 return sanitizar_texto_cfo(response.text)
 
         except Exception as e:
-            ultimo_error = str(e)
+            ultimo_error_real = str(e)
+            # Si se encuentra con un límite temporal de tasa por segundo, aguarda 1 segundo y reintenta con el siguiente modelo
+            time.sleep(1)
             continue
 
-    raise Exception("Has alcanzado el límite diario gratuito de la API de Google para hoy. Genera una nueva API Key en Google AI Studio para continuar de inmediato.")
-
-
+    # Devolvemos el error en vivo de la API para saber con exactitud qué sucede
+    raise Exception(f"Detalle técnico de la llamada: {ultimo_error_real}")
 
 # ==========================================
 #     PANEL LATERAL
