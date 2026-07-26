@@ -11,47 +11,52 @@ import google.generativeai as genai
 # ==============================================================================
 def sanitizar_texto_cfo(texto):
     """
-    Extrae la respuesta final en español y descarta borradores/pensamientos en inglés.
+    Elimina drásticamente el bloque de razonamiento en inglés (Chain of Thought)
+    y conserva únicamente la respuesta final en español enviada al estudiante.
     """
     if not texto:
         return ""
 
-    lineas = texto.split("\n")
-    lineas_filtradas = []
-
-    # Lista ampliada de palabras clave y marcas típicas del pensamiento en inglés de la API
-    indicadores_ingles = [
-        "role:", "scenario", "financial data", "current assets", "current liabilities",
-        "sales:", "cogs:", "net income", "student", "strengths", "weaknesses", "gaps",
-        "acknowledge", "validate", "pivot", "socratic", "greeting", "analysis",
-        "constraint:", "no english", "drafts", "health check", "quick ratio", 
-        "current ratio", "ias 2", "nrv", "challenge 1", "challenge 2", "challenge 3",
-        "question 1", "question 2", "question 3", "intro:", "selling inventory:",
-        "postponing", "fixing prices:"
+    # Patrones típicos donde el modelo inicia su respuesta real en español
+    patrones_inicio_espanol = [
+        r"Estimado\b", r"Hola\b", r"Tu enfoque\b", r"Has planteado\b", 
+        r"Entiendo\b", r"Como CFO\b", r"Respecto a\b", r"Analizando\b"
     ]
 
-    for linea in lineas:
-        linea_str = linea.strip()
-        linea_lower = linea_str.lower()
-        
-        # Omitir líneas vacías o que contengan etiquetas de pensamiento en inglés
-        if not linea_str:
-            continue
-            
-        es_basura_ingles = any(indicador in linea_lower for indicador in indicadores_ingles)
-        
-        if not es_basura_ingles:
-            lineas_filtradas.append(linea_str)
+    # Buscar si existe un punto de inicio en español dentro del texto devuelto
+    lineas = texto.split("\n")
+    indice_inicio = -1
 
-    resultado = "\n\n".join(lineas_filtradas).strip()
+    for idx, linea in enumerate(lineas):
+        linea_clean = linea.strip()
+        # Si la línea coincide con un saludo o inicio formal en español
+        if any(re.search(patron, linea_clean, re.IGNORECASE) for patron in patrones_inicio_espanol):
+            # Verificar que no sea parte del borrador (ej: 'Drafting: Estimado...')
+            if not any(w in linea_clean.lower() for w in ["drafting", "step ", "question", "tone:"]):
+                indice_inicio = idx
+                break
+
+    # Si se encontró el inicio de la respuesta en español, recortar todo lo anterior (inglés/borrador)
+    if indice_inicio != -1:
+        texto_limpio = "\n".join(lineas[indice_inicio:]).strip()
+        return texto_limpio
+
+    # Filtro secundario de respaldo línea por línea si no encontró un saludo explícito
+    lineas_limpias = []
+    palabras_basura = [
+        "role:", "scenario", "financial data", "current assets", "current liabilities",
+        "income statement", "student's", "validation", "accounting analysis", "step 1",
+        "step 2", "step 3", "step 4", "acid test calculation", "interpretation:",
+        "socratic challenge", "tone:", "language:", "self-correction", "drafting"
+    ]
+
+    for l in lineas:
+        l_lower = l.strip().lower()
+        if not any(p in l_lower for p in palabras_basura) and len(l.strip()) > 0:
+            lineas_limpias.append(l)
+
+    return "\n".join(lineas_limpias).strip()
     
-    # Si todo el texto fue filtrado o la IA encerró la respuesta en comillas finales
-    if not resultado and texto:
-        # Extraer frases que empiecen por español típico
-        lineas_espanol = [l for l in lineas if any(w in l.lower() for w in ["entiendo", "estimado", "hola", "respecto", "sobre", "como cfo", "analizando"])]
-        resultado = "\n".join(lineas_espanol).strip()
-
-    return resultado if resultado else texto.strip()
 
 # ==========================================
 #  INICIALIZACIÓN DEL ESTADO DE SESIÓN
@@ -171,29 +176,28 @@ def sanitizar_texto_cfo(texto):
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API probando nombres compatibles con v1beta/v1 sin lanzar 404."""
+    """Llama a Gemini exigiendo la entrega inmediata de la respuesta en español."""
     
     system_instruction = (
-    "IDIOMA OBLIGATORIO: ESPAÑOL.\n"
-    "ROL: Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n\n"
-    f"Escenario actual: {caso_info['titulo']} - {caso_info['entorno']}.\n"
-    f"Datos Financieros del Caso: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
-    "ESTRUCTURA OBLIGATORIA DE TUS RESPUESTAS:\n"
-    "1. VALIDACIÓN TÁCTICA: Reconoce profesionalmente los puntos acertados del estudiante en gestión de caja o capital de trabajo.\n"
-    "2. ANÁLISIS CONTABLE PROFUNDO (NIC 2 / IAS 2): Cuestiona la valoración del inventario. "
-    "Explica el impacto de medir al menor entre Costo y Valor Neto Realizable (VNR) ante la caída de precios.\n"
-    "3. IMPACTO EN LIQUIDEZ Y RATIOS: Muestra explícitamente el cálculo de la Prueba Ácida ((Caja + CxC) / Pasivo Corriente) "
-    "y cómo el deterioro del inventario afecta la solvencia de corto plazo.\n"
-    "4. DESAFÍO SOCRÁTICO: Cierra con 1 o 2 preguntas clave que obliguen al estudiante a tomar una decisión de reestructuración o cobertura (hedging)."
-)
+        "Escribe OBLIGATORIAMENTE tu respuesta 100% en español.\n"
+        "Está ESTRICTAMENTE PROHIBIDO redactar borradores, análisis previos o texto en inglés (como 'Role:', 'Step 1', 'Drafting', 'Student Suggestion').\n"
+        "Comienza tu mensaje DIRECTAMENTE saludando al estudiante como CFO y Tutor Académico.\n\n"
+        f"CONTEXTO OPERATIVO: {caso_info['titulo']} ({caso_info['entorno']}).\n"
+        f"DATOS CLAVE: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
+        "PAUTA DE RESPUESTA (Directo en español):\n"
+        "- Valida los aciertos del estudiante en flujo de caja/operaciones.\n"
+        "- Desafíalo sobre la norma NIC 2 / IAS 2 (Costo vs. Valor Neto Realizable) sobre el inventario inmovilizado.\n"
+        "- Muestra el cálculo de la Prueba Ácida: (Efectivo + Cuentas por Cobrar) / Pasivo Corriente.\n"
+        "- Cierra con 1 o 2 preguntas socráticas para su toma de decisiones."
+    )
 
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
+        # Limpiamos el historial enviado para que no re-contamine al modelo con sus propios borradores pasados
         contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
-    # Nombres exactos de modelos soportados por la API
     modelos_candidatos = [
         "gemini-2.0-flash",
         "gemini-1.5-flash-8b",
@@ -204,7 +208,6 @@ def llamar_gemini_api(historial_mensajes, caso_info):
     
     ultimo_error = None
 
-    # 1. Intentar con la lista de candidatos
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
@@ -214,8 +217,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,
-                    max_output_tokens=1000
+                    temperature=0.2,
+                    max_output_tokens=1500  # Aumentamos a 1500 tokens para asegurar una respuesta completa
                 )
             )
             if response and response.text:
@@ -226,7 +229,7 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             ultimo_error = str(e)
             continue
 
-    # 2. Respaldo dinámico: consultar directamente a la API qué modelo de texto está activo
+    # Respaldo dinámico
     try:
         modelos_activos = [
             m.name for m in genai.list_models() 
@@ -235,15 +238,12 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         
         for mod_activo in modelos_activos:
             try:
-                model = genai.GenerativeModel(
-                    model_name=mod_activo, 
-                    system_instruction=system_instruction
-                )
+                model = genai.GenerativeModel(model_name=mod_activo, system_instruction=system_instruction)
                 response = model.generate_content(
                     contents,
                     generation_config=genai.types.GenerationConfig(
-                        temperature=0.1, 
-                        max_output_tokens=1000
+                        temperature=0.2, 
+                        max_output_tokens=1500
                     )
                 )
                 if response and response.text:
