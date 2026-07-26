@@ -1,9 +1,54 @@
-import streamlit as st
+import os
+import re
+import time
 import pandas as pd
-import json
-import random
+import streamlit as st
 import google.generativeai as genai
 
+# ==============================================================================
+# FUNCIÓN DE LIMPIEZA Y SANITIZACIÓN
+# ==============================================================================
+def sanitizar_texto_cfo(texto):
+    """Limpia de forma rigurosa cualquier bloque de razonamiento o metadatos en inglés."""
+    if not texto:
+        return ""
+
+    # Separar por bloques de párrafos
+    bloques = texto.split("\n\n")
+    bloques_limpios = []
+
+    # Expresiones o palabras clave que indican razonamiento interno en inglés
+    patrones_pensamiento = [
+        r"cfo corporate", r"case [a-z]", r"current assets:", r"the student",
+        r"acknowledge the", r"clarify the", r"apply to the", r"socratic method",
+        r"greeting:", r"validation:", r"explanation:", r"the \"catch\":",
+        r"socratic question:", r"spanish\?", r"direct to student\?", r"drafting",
+        r"refining:", r"role:", r"scenario:", r"financial data:"
+    ]
+
+    for bloque in bloques:
+        bloque_lower = bloque.strip().lower()
+        # Verificar si el bloque contiene rastros de pensamiento/instrucciones en inglés
+        contiene_basura = any(re.search(patron, bloque_lower) for patron in patrones_pensamiento)
+        
+        # Si el bloque NO contiene basura en inglés, se conserva
+        if not contiene_basura and len(bloque.strip()) > 0:
+            bloques_limpios.append(bloque.strip())
+
+    resultado = "\n\n".join(bloques_limpios).strip()
+
+    # Si la limpieza eliminó todo o la estructura no tenía saltos dobles:
+    if not resultado and texto:
+        lineas = texto.split("\n")
+        lineas_validas = []
+        for l in lineas:
+            l_lower = l.strip().lower()
+            if not any(re.search(patron, l_lower) for patron in patrones_pensamiento):
+                lineas_validas.append(l)
+        resultado = "\n".join(lineas_validas).strip()
+
+    return resultado if resultado else texto.strip()
+    
 # ==========================================
 #      CONFIGURACIÓN DE LA PÁGINA
 # ==========================================
