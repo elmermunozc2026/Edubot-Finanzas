@@ -150,8 +150,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         "1. Genera ÚNICAMENTE la respuesta final enviada al estudiante en español.\n"
         "2. PROHIBIDO incluir notas de análisis, 'Case B', 'The student is...', 'Socratic question:', ni estructurar tu razonamiento en inglés.\n"
         "3. Mantén un tono profesional de CFO, guiando al estudiante con el método socrático sobre NIIF/IAS 2 (Valor Neto Realizable vs. Costo)."
-        "4. Mantén un tono profesional de CFO, guiando al estudiante con el método socrático sobre temas de FP&A (Planeamiento financiero)."
-    )
+        
+   )
 
     # Convertir historial al formato estándar del SDK
     contents = []
