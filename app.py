@@ -11,48 +11,42 @@ import google.generativeai as genai
 # ==============================================================================
 def sanitizar_texto_cfo(texto):
     """
-    Elimina drásticamente el bloque de razonamiento en inglés (Chain of Thought)
-    y conserva únicamente la respuesta final en español enviada al estudiante.
+    Recorta cualquier bloque de razonamiento o plantilla en inglés y retiene 
+    únicamente el cuerpo de la respuesta en español dirigido al estudiante.
     """
     if not texto:
         return ""
 
-    # Patrones típicos donde el modelo inicia su respuesta real en español
-    patrones_inicio_espanol = [
-        r"Estimado\b", r"Hola\b", r"Tu enfoque\b", r"Has planteado\b", 
-        r"Entiendo\b", r"Como CFO\b", r"Respecto a\b", r"Analizando\b"
-    ]
+    # Buscar la primera ocurrencia de un saludo formal en español
+    patron_inicio = re.search(r'\b(Estimado|Hola|Bienvenido|Entiendo|Respecto|Sobre|Como CFO)\b', texto, re.IGNORECASE)
 
-    # Buscar si existe un punto de inicio en español dentro del texto devuelto
+    if patron_inicio:
+        # Extraer únicamente desde el saludo en adelante
+        posicion = patron_inicio.start()
+        texto_espanol = texto[posicion:].strip()
+        
+        # Si por alguna razón dentro del texto recortado quedaron líneas con etiquetas en inglés de borrador:
+        lineas = texto_espanol.split("\n")
+        lineas_limpias = []
+        for l in lineas:
+            l_lower = l.strip().lower()
+            if not any(k in l_lower for k in ["drafting:", "step 1:", "step 2:", "self-correction:", "language:"]):
+                lineas_limpias.append(l)
+        return "\n".join(lineas_limpias).strip()
+
+    # Si no se encontró un saludo claro, filtrar líneas que contengan términos de pensamiento en inglés
     lineas = texto.split("\n")
-    indice_inicio = -1
-
-    for idx, linea in enumerate(lineas):
-        linea_clean = linea.strip()
-        # Si la línea coincide con un saludo o inicio formal en español
-        if any(re.search(patron, linea_clean, re.IGNORECASE) for patron in patrones_inicio_espanol):
-            # Verificar que no sea parte del borrador (ej: 'Drafting: Estimado...')
-            if not any(w in linea_clean.lower() for w in ["drafting", "step ", "question", "tone:"]):
-                indice_inicio = idx
-                break
-
-    # Si se encontró el inicio de la respuesta en español, recortar todo lo anterior (inglés/borrador)
-    if indice_inicio != -1:
-        texto_limpio = "\n".join(lineas[indice_inicio:]).strip()
-        return texto_limpio
-
-    # Filtro secundario de respaldo línea por línea si no encontró un saludo explícito
     lineas_limpias = []
-    palabras_basura = [
+    palabras_ingles = [
         "role:", "scenario", "financial data", "current assets", "current liabilities",
         "income statement", "student's", "validation", "accounting analysis", "step 1",
-        "step 2", "step 3", "step 4", "acid test calculation", "interpretation:",
-        "socratic challenge", "tone:", "language:", "self-correction", "drafting"
+        "acid test calculation", "interpretation:", "socratic challenge", "tone:", 
+        "language:", "self-correction", "drafting", "goal:", "missing link:"
     ]
 
     for l in lineas:
         l_lower = l.strip().lower()
-        if not any(p in l_lower for p in palabras_basura) and len(l.strip()) > 0:
+        if not any(p in l_lower for p in palabras_ingles) and len(l.strip()) > 0:
             lineas_limpias.append(l)
 
     return "\n".join(lineas_limpias).strip()
@@ -175,35 +169,36 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
+
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a Gemini exigiendo la entrega inmediata de la respuesta en español."""
-    
+    """
+    Llama a la API de Gemini forzando el inicio directo en español y sin plantillas internas.
+    """
     system_instruction = (
-        "Escribe OBLIGATORIAMENTE tu respuesta 100% en español.\n"
-        "Está ESTRICTAMENTE PROHIBIDO redactar borradores, análisis previos o texto en inglés (como 'Role:', 'Step 1', 'Drafting', 'Student Suggestion').\n"
-        "Comienza tu mensaje DIRECTAMENTE saludando al estudiante como CFO y Tutor Académico.\n\n"
-        f"CONTEXTO OPERATIVO: {caso_info['titulo']} ({caso_info['entorno']}).\n"
-        f"DATOS CLAVE: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
-        "PAUTA DE RESPUESTA (Directo en español):\n"
-        "- Valida los aciertos del estudiante en flujo de caja/operaciones.\n"
-        "- Desafíalo sobre la norma NIC 2 / IAS 2 (Costo vs. Valor Neto Realizable) sobre el inventario inmovilizado.\n"
-        "- Muestra el cálculo de la Prueba Ácida: (Efectivo + Cuentas por Cobrar) / Pasivo Corriente.\n"
-        "- Cierra con 1 o 2 preguntas socráticas para su toma de decisiones."
+        "TU PRIMERA PALABRA DEBE SER 'Estimado'. ESTÁ STRICTLY PROHIBIDO ESCRIBIR CUALQUIER TEXTO EN INGLÉS, "
+        "NOTAS DE ANÁLISIS, BORRADORES O ESTRUCTURAS COMO 'Role:', 'Step 1' O 'Drafting'.\n\n"
+        "ROL: Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
+        f"CASO: {caso_info['titulo']} ({caso_info['entorno']}).\n"
+        f"DATOS: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
+        "Responde directamente en español al estudiante evaluando su propuesta con rigor de CFO. "
+        "Agradece sus aciertos en liquidez/operaciones, cuestiona la valoración de inventarios según la NIC 2 / IAS 2 "
+        "(Costo vs. Valor Neto Realizable) y muestra explícitamente el cálculo de la Prueba Ácida: "
+        "(Efectivo + Cuentas por Cobrar) / Pasivo Corriente. Cierra con preguntas socráticas."
     )
 
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
-        # Limpiamos el historial enviado para que no re-contamine al modelo con sus propios borradores pasados
+        # Limpieza previa del historial para no contaminar al modelo con borradores pasados
         contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
     modelos_candidatos = [
         "gemini-2.0-flash",
-        "gemini-1.5-flash-8b",
         "gemini-1.5-flash",
+        "gemini-1.5-flash-8b",
         "models/gemini-2.0-flash",
-        "models/gemini-1.5-flash-8b"
+        "models/gemini-1.5-flash"
     ]
     
     ultimo_error = None
@@ -218,7 +213,7 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 contents,
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.2,
-                    max_output_tokens=1500  # Aumentamos a 1500 tokens para asegurar una respuesta completa
+                    max_output_tokens=2048  # Aumentado a 2048 para evitar cortes a mitad de respuesta
                 )
             )
             if response and response.text:
@@ -243,7 +238,7 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                     contents,
                     generation_config=genai.types.GenerationConfig(
                         temperature=0.2, 
-                        max_output_tokens=1500
+                        max_output_tokens=2048
                     )
                 )
                 if response and response.text:
@@ -257,7 +252,6 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         ultimo_error = str(e)
 
     raise Exception(f"Detalle técnico de la llamada: {ultimo_error}")
-
 # ==========================================
 #     PANEL LATERAL
 # ==========================================
