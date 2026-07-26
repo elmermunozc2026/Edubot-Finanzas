@@ -10,62 +10,48 @@ import google.generativeai as genai
 # FUNCIÓN DE LIMPIEZA Y SANITIZACIÓN
 # ==============================================================================
 def sanitizar_texto_cfo(texto):
-    """Limpia de forma rigurosa cualquier bloque de razonamiento o metadatos en inglés."""
+    """
+    Extrae la respuesta final en español y descarta borradores/pensamientos en inglés.
+    """
     if not texto:
         return ""
 
-    # Separar por bloques de párrafos
-    bloques = texto.split("\n\n")
-    bloques_limpios = []
+    lineas = texto.split("\n")
+    lineas_filtradas = []
 
-    # Expresiones o palabras clave que indican razonamiento interno en inglés
-    patrones_pensamiento = [
-        r"cfo corporate", r"case [a-z]", r"current assets:", r"the student",
-        r"acknowledge the", r"clarify the", r"apply to the", r"socratic method",
-        r"greeting:", r"validation:", r"explanation:", r"the \"catch\":",
-        r"socratic question:", r"spanish\?", r"direct to student\?", r"drafting",
-        r"refining:", r"role:", r"scenario:", r"financial data:"
+    # Lista ampliada de palabras clave y marcas típicas del pensamiento en inglés de la API
+    indicadores_ingles = [
+        "role:", "scenario", "financial data", "current assets", "current liabilities",
+        "sales:", "cogs:", "net income", "student", "strengths", "weaknesses", "gaps",
+        "acknowledge", "validate", "pivot", "socratic", "greeting", "analysis",
+        "constraint:", "no english", "drafts", "health check", "quick ratio", 
+        "current ratio", "ias 2", "nrv", "challenge 1", "challenge 2", "challenge 3",
+        "question 1", "question 2", "question 3", "intro:", "selling inventory:",
+        "postponing", "fixing prices:"
     ]
 
-    for bloque in bloques:
-        bloque_lower = bloque.strip().lower()
-        # Verificar si el bloque contiene rastros de pensamiento/instrucciones en inglés
-        contiene_basura = any(re.search(patron, bloque_lower) for patron in patrones_pensamiento)
+    for linea in lineas:
+        linea_str = linea.strip()
+        linea_lower = linea_str.lower()
         
-        # Si el bloque NO contiene basura en inglés, se conserva
-        if not contiene_basura and len(bloque.strip()) > 0:
-            bloques_limpios.append(bloque.strip())
+        # Omitir líneas vacías o que contengan etiquetas de pensamiento en inglés
+        if not linea_str:
+            continue
+            
+        es_basura_ingles = any(indicador in linea_lower for indicador in indicadores_ingles)
+        
+        if not es_basura_ingles:
+            lineas_filtradas.append(linea_str)
 
-    resultado = "\n\n".join(bloques_limpios).strip()
-
-    # Si la limpieza eliminó todo o la estructura no tenía saltos dobles:
+    resultado = "\n\n".join(lineas_filtradas).strip()
+    
+    # Si todo el texto fue filtrado o la IA encerró la respuesta en comillas finales
     if not resultado and texto:
-        lineas = texto.split("\n")
-        lineas_validas = []
-        for l in lineas:
-            l_lower = l.strip().lower()
-            if not any(re.search(patron, l_lower) for patron in patrones_pensamiento):
-                lineas_validas.append(l)
-        resultado = "\n".join(lineas_validas).strip()
+        # Extraer frases que empiecen por español típico
+        lineas_espanol = [l for l in lineas if any(w in l.lower() for w in ["entiendo", "estimado", "hola", "respecto", "sobre", "como cfo", "analizando"])]
+        resultado = "\n".join(lineas_espanol).strip()
 
     return resultado if resultado else texto.strip()
-    
-# ==========================================
-#      CONFIGURACIÓN DE LA PÁGINA
-# ==========================================
-st.set_page_config(
-    page_title="CFO Edubot - Evaluación Dinámica", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
-
-# ACCESO SEGURO A LA API KEY
-if "GEMINI_API_KEY" in st.secrets:
-    api_key_segura = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key_segura)
-else:
-    st.error("Error de configuración: No se encontró la API Key en los secretos del servidor.")
-    st.stop()
 
 # ==========================================
 #  INICIALIZACIÓN DEL ESTADO DE SESIÓN
@@ -184,23 +170,25 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
-
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API forzando respuesta directa en español y sin borradores previos."""
+    """Llama a la API garantizando respuesta directa en español sin cadena de pensamiento."""
     
     system_instruction = (
+        "IDIOMA OBLIGATORIO: ESPAÑOL.\n"
+        "RESPONDE DIRECTAMENTE AL ESTUDIANTE SIN ESCRIBIR NOTAS, BORRADORES NI PENSAMIENTOS EN INGLÉS.\n\n"
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
         f"Escenario actual: {caso_info['titulo']} - {caso_info['entorno']}.\n"
-        f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-        "REGLA CRÍTICA Y DE CUMPLIMIENTO OBLIGATORIO:\n"
-        "Está estrictamente PROHIBIDO escribir borradores, 'Role:', 'Scenario:', 'Student\'s Proposed Solutions:', 'Weaknesses/Gaps:' o notas internas en inglés.\n"
-        "Tu respuesta debe comenzar INMEDIATAMENTE en español dirigiéndote al estudiante con tono profesional de CFO y método socrático sobre IFRS/IAS 2."
+        f"Datos Financieros del Caso: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
+        "INSTRUCCIONES DE INTERACCIÓN:\n"
+        "1. Saluda o responde directamente en español con tono profesional de CFO.\n"
+        "2. Evalúa la respuesta del estudiante aplicando el método socrático.\n"
+        "3. Guíalo hacia la norma NIC 2 / IAS 2 (Costo vs. Valor Neto Realizable) y el impacto en liquidez/Prueba Ácida."
     )
 
-    # Convertir historial al formato estándar del SDK pasando por el filtro de limpieza
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
+        # Limpiar mensajes antiguos del modelo antes de enviarlos como contexto
         contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
@@ -213,7 +201,6 @@ def llamar_gemini_api(historial_mensajes, caso_info):
     
     ultimo_error = None
 
-    # Intentar con la lista de modelos candidatos
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
@@ -223,40 +210,17 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.2,       # Mayor obediencia al formato
-                    max_output_tokens=1000  # Espacio suficiente para no cortar el texto
+                    temperature=0.1,       # Reducimos al mínimo la creatividad para evitar desvíos
+                    max_output_tokens=1000  # Espacio suficiente para la respuesta en español
                 )
             )
             if response and response.text:
-                return sanitizar_texto_cfo(response.text)
+                texto_limpio = sanitizar_texto_cfo(response.text)
+                if texto_limpio:
+                    return texto_limpio
         except Exception as e:
             ultimo_error = str(e)
             continue
-
-    # Respaldo de búsqueda dinámica por si cambian los nombres en el SDK
-    try:
-        modelos_disponibles = [
-            m.name for m in genai.list_models() 
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        
-        for mod_activo in modelos_disponibles:
-            try:
-                model = genai.GenerativeModel(model_name=mod_activo, system_instruction=system_instruction)
-                response = model.generate_content(
-                    contents,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.2, 
-                        max_output_tokens=1000
-                    )
-                )
-                if response and response.text:
-                    return sanitizar_texto_cfo(response.text)
-            except Exception as e:
-                ultimo_error = str(e)
-                continue
-    except Exception as e:
-        ultimo_error = str(e)
 
     raise Exception(f"Detalle técnico de la llamada: {ultimo_error}")
 
