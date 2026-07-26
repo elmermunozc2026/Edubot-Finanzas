@@ -171,7 +171,7 @@ def sanitizar_texto_cfo(texto):
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API garantizando respuesta directa en español sin cadena de pensamiento."""
+    """Llama a la API probando nombres compatibles con v1beta/v1 sin lanzar 404."""
     
     system_instruction = (
         "IDIOMA OBLIGATORIO: ESPAÑOL.\n"
@@ -188,19 +188,21 @@ def llamar_gemini_api(historial_mensajes, caso_info):
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
-        # Limpiar mensajes antiguos del modelo antes de enviarlos como contexto
         contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
+    # Nombres exactos de modelos soportados por la API
     modelos_candidatos = [
-        "models/gemini-1.5-flash",
-        "models/gemini-1.5-flash-latest",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-8b",
+        "gemini-1.5-flash",
         "models/gemini-2.0-flash",
-        "gemini-1.5-flash"
+        "models/gemini-1.5-flash-8b"
     ]
     
     ultimo_error = None
 
+    # 1. Intentar con la lista de candidatos
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
@@ -210,8 +212,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,       # Reducimos al mínimo la creatividad para evitar desvíos
-                    max_output_tokens=1000  # Espacio suficiente para la respuesta en español
+                    temperature=0.1,
+                    max_output_tokens=1000
                 )
             )
             if response and response.text:
@@ -221,6 +223,36 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         except Exception as e:
             ultimo_error = str(e)
             continue
+
+    # 2. Respaldo dinámico: consultar directamente a la API qué modelo de texto está activo
+    try:
+        modelos_activos = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        for mod_activo in modelos_activos:
+            try:
+                model = genai.GenerativeModel(
+                    model_name=mod_activo, 
+                    system_instruction=system_instruction
+                )
+                response = model.generate_content(
+                    contents,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.1, 
+                        max_output_tokens=1000
+                    )
+                )
+                if response and response.text:
+                    texto_limpio = sanitizar_texto_cfo(response.text)
+                    if texto_limpio:
+                        return texto_limpio
+            except Exception as e:
+                ultimo_error = str(e)
+                continue
+    except Exception as e:
+        ultimo_error = str(e)
 
     raise Exception(f"Detalle técnico de la llamada: {ultimo_error}")
 
