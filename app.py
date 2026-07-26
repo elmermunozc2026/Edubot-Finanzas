@@ -186,26 +186,24 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 
 def llamar_gemini_api(historial_mensajes, caso_info):
-    """Llama a la API probando nombres con prefijo 'models/' y manejo dinámico."""
+    """Llama a la API forzando respuesta directa en español y sin borradores previos."""
     
     system_instruction = (
         f"Eres el Director de Finanzas (CFO) Corporativo de una empresa minera y Tutor Académico.\n"
-        f"Escenario: {caso_info['titulo']} - {caso_info['entorno']}.\n"
+        f"Escenario actual: {caso_info['titulo']} - {caso_info['entorno']}.\n"
         f"Datos Financieros: {caso_info['balance_a2']} | {caso_info['resultados_a2']}.\n\n"
-        "REGLAS OBLIGATORIAS DE FORMATO:\n"
-        "1. Genera ÚNICAMENTE la respuesta final enviada al estudiante en español.\n"
-        "2. PROHIBIDO incluir notas de análisis, 'Case B', 'The student is...', 'Socratic question:', ni estructurar tu razonamiento en inglés.\n"
-        "3. Mantén un tono profesional de CFO, guiando al estudiante con el método socrático sobre NIIF/IAS 2 (Valor Neto Realizable vs. Costo)."
+        "REGLA CRÍTICA Y DE CUMPLIMIENTO OBLIGATORIO:\n"
+        "Está estrictamente PROHIBIDO escribir borradores, 'Role:', 'Scenario:', 'Student\'s Proposed Solutions:', 'Weaknesses/Gaps:' o notas internas en inglés.\n"
+        "Tu respuesta debe comenzar INMEDIATAMENTE en español dirigiéndote al estudiante con tono profesional de CFO y método socrático sobre IFRS/IAS 2."
     )
 
-    # Convertir historial al formato estándar del SDK
+    # Convertir historial al formato estándar del SDK pasando por el filtro de limpieza
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
         contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
-    # Lista de nombres exactos que acepta la API de Google
     modelos_candidatos = [
         "models/gemini-1.5-flash",
         "models/gemini-1.5-flash-latest",
@@ -215,7 +213,7 @@ def llamar_gemini_api(historial_mensajes, caso_info):
     
     ultimo_error = None
 
-    # Intentar con la lista de modelos conocidos
+    # Intentar con la lista de modelos candidatos
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
@@ -225,8 +223,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.3,
-                    max_output_tokens=600
+                    temperature=0.2,       # Mayor obediencia al formato
+                    max_output_tokens=1000  # Espacio suficiente para no cortar el texto
                 )
             )
             if response and response.text:
@@ -235,7 +233,7 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             ultimo_error = str(e)
             continue
 
-    # Si ninguno funciona, listar dinámicamente los modelos que TU clave/librería soporta exactamente
+    # Respaldo de búsqueda dinámica por si cambian los nombres en el SDK
     try:
         modelos_disponibles = [
             m.name for m in genai.list_models() 
@@ -247,7 +245,10 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 model = genai.GenerativeModel(model_name=mod_activo, system_instruction=system_instruction)
                 response = model.generate_content(
                     contents,
-                    generation_config=genai.types.GenerationConfig(temperature=0.3, max_output_tokens=600)
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.2, 
+                        max_output_tokens=1000
+                    )
                 )
                 if response and response.text:
                     return sanitizar_texto_cfo(response.text)
