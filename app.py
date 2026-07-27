@@ -214,7 +214,7 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudiante"):
     """
-    Llama a Gemini inyectando directamente el nombre de la sesión.
+    Llama a Gemini inyectando directamente el nombre de la sesión.    
     """
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
@@ -229,37 +229,28 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
         "5. Cierra con 2 preguntas socráticas de toma de decisiones.\n"
         "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
     )
-
+    
     contents = []
     for m in historial_mensajes:
-        # 1. Normalizar el rol para Gemini
         es_usuario = m["role"] == "user"
         role = "user" if es_usuario else "model"
-        
-        # 2. Sanitizar solo si es respuesta del modelo
-        if es_usuario:
-            contenido = m["content"]
-        else:
-            contenido = sanitizar_texto_cfo(m["content"], nombre_estudiante)
-        
-        # 3. Validar que el texto no esté vacío
+        contenido = m["content"] if es_usuario else sanitizar_texto_cfo(m["content"], nombre_estudiante)
         if contenido and contenido.strip():
             contents.append({
-                "role": role, 
+                "role": role,
                 "parts": [{"text": contenido.strip()}]
             })
-# Modelos con alias estables de Google AI Studio
-    
-    # Modelos candidatos
+
     modelos_candidatos = [
         "gemini-1.5-flash",
         "gemini-1.5-pro",
         "gemini-2.0-flash"
-        "gemini-2.5-flash"       
+        "gemini-2.5-flash"
     ]
 
     ultimo_error = None
-for mod in modelos_candidatos:
+
+    for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
                 model_name=mod, 
@@ -275,14 +266,13 @@ for mod in modelos_candidatos:
             if response and response.text:
                 texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
                 if texto_limpio:
-                    return texto_limpio  # <- ABRIR 20 ESPACIOS (5 niveles de sangría desde la izquierda)
+                    return texto_limpio
         except Exception as e:
             ultimo_error = f"[{mod}]: {str(e)}"
             print(f"Error con modelo {mod}: {e}")
             continue
 
-raise Exception(f"Detalle técnico del error: {ultimo_error}")
-
+    raise Exception(f"Detalle técnico del error: {ultimo_error}")
 # ==========================================
 #     PANEL LATERAL
 # ==========================================
