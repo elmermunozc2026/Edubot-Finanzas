@@ -241,9 +241,12 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 "parts": [{"text": contenido.strip()}]
             })
 
+ # Modelos activos con alias estables para la API de Google AI Studio
     modelos_candidatos = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-pro-002"
     ]
 
     ultimo_error = None
@@ -271,6 +274,8 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
             continue
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
+
+    
 # ==========================================
 #     PANEL LATERAL
 # ==========================================
