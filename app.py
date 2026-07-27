@@ -213,11 +213,10 @@ def sanitizar_texto_cfo(texto):
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
-    # 1. Forzar la versión estable de la API v1 para evitar v1beta
-    try:
-        genai.configure(api_version="v1")
-    except Exception:
-        pass
+    # Asegurar configuración global con la API Key cargada desde los secrets
+    api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if api_key:
+        genai.configure(api_key=api_key)
 
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
@@ -233,7 +232,9 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
         "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
     )
     
+    # Construir el contenido asegurando la instrucción del sistema al inicio
     contents = []
+    
     for m in historial_mensajes:
         es_usuario = m["role"] == "user"
         role = "user" if es_usuario else "model"
@@ -244,37 +245,54 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                 "parts": [{"text": contenido.strip()}]
             })
 
-    # Modelos candidatos con nombres de la API v1
+    # Modelos compatibles directos sin sufijos conflictivos
     modelos_candidatos = [
         "gemini-1.5-flash",
         "gemini-1.5-pro",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro-latest"
+        "gemini-2.0-flash-exp"
     ]
 
     ultimo_error = None
 
     for mod in modelos_candidatos:
         try:
+            # Inicialización estándar
             model = genai.GenerativeModel(
-                model_name=mod, 
+                model_name=mod,
                 system_instruction=system_instruction
             )
             response = model.generate_content(
                 contents,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,
-                    max_output_tokens=1200
-                )
+                generation_config={
+                    "temperature": 0.1,
+                    "max_output_tokens": 1200
+                }
             )
             if response and response.text:
                 texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
                 if texto_limpio:
                     return texto_limpio
         except Exception as e:
-            ultimo_error = f"[{mod}]: {str(e)}"
-            print(f"Error con modelo {mod}: {e}")
-            continue
+            # Si el error es por system_instruction en ese modelo, intentamos sin ese parámetro
+            try:
+                model_alt = genai.GenerativeModel(model_name=mod)
+                prompt_combinado = f"INSTRUCCIONES DEL SISTEMA:\n{system_instruction}\n\nHISTORIAL Y MENSAJE:\n"
+                contents_alt = [{"role": "user", "parts": [{"text": prompt_combinado}]}] + contents
+                response_alt = model_alt.generate_content(
+                    contents_alt,
+                    generation_config={
+                        "temperature": 0.1,
+                        "max_output_tokens": 1200
+                    }
+                )
+                if response_alt and response_alt.text:
+                    texto_limpio = sanitizar_texto_cfo(response_alt.text, nombre_estudiante)
+                    if texto_limpio:
+                        return texto_limpio
+            except Exception as e_alt:
+                ultimo_error = f"[{mod}]: {str(e_alt)}"
+                print(f"Error alternativo con modelo {mod}: {e_alt}")
+                continue
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
     
