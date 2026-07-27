@@ -213,7 +213,6 @@ def sanitizar_texto_cfo(texto):
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
-    # Se usa caso_actual en lugar de caso_info
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
         "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas ni en inglés.\n\n"
@@ -239,22 +238,14 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                 "parts": [{"text": contenido.strip()}]
             })
 
-    # 1. Obtener dinámicamente los modelos válidos para tu API Key
-    modelos_candidatos = []
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                modelos_candidatos.append(m.name)
-    except Exception as e:
-        print(f"Error al listar modelos: {e}")
-
-    # Respaldos si la consulta fallara
-    if not modelos_candidatos:
-        modelos_candidatos = ["gemini-1.5-flash", "gemini-1.5-pro"]
+    # Lista directa de modelos estables de alta velocidad en la API pagada
+    modelos_candidatos = [
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ]
 
     ultimo_error = None
 
-    # 2. Iterar sobre los modelos detectados
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
@@ -409,6 +400,7 @@ with col_interactiva:
                         total_preguntas = len(st.session_state.preguntas_examen)
                         nota_final = (respuestas_correctas / total_preguntas) * 20
                         st.metric(label="Calificación Obtendida", value=f"{nota_final:.1f} / 20.0")
+
 # =========================================================
 # PIE DE PÁGINA / LATERAL: BOTÓN DE CERRAR SESIÓN
 # =========================================================
