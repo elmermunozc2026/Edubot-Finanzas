@@ -250,18 +250,21 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
             })
 # Modelos con alias estables de Google AI Studio
     
-modelos_candidatos = [
-    "gemini-2.5-flash",
-    "gemini-2.5-pro"
-]
+    # Modelos candidatos
+    modelos_candidatos = [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
+    ]
+
     ultimo_error = None
 
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
-                model_name=mod, 
+                model_name=mod,
                 system_instruction=system_instruction
             )
+
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
@@ -269,14 +272,18 @@ modelos_candidatos = [
                     max_output_tokens=1200
                 )
             )
+
             if response and response.text:
-                texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
+                texto_limpio = sanitizar_texto_cfo(
+                    response.text,
+                    nombre_estudiante
+                )
                 if texto_limpio:
                     return texto_limpio
+
         except Exception as e:
-            ultimo_error = f"[{mod}]: {str(e)}"
+            ultimo_error = f"[{mod}]: {e}"
             print(f"Error con modelo {mod}: {e}")
-            continue
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
 
