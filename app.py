@@ -11,47 +11,48 @@ import google.generativeai as genai
 # ==============================================================================
 def sanitizar_texto_cfo(texto):
     """
-    Recorta cualquier bloque de razonamiento o plantilla en inglés y retiene 
-    únicamente el cuerpo de la respuesta en español dirigido al estudiante.
+    Extrae ÚNICAMENTE el bloque en español dirigido al estudiante.
+    Elimina cualquier borrador en inglés tanto ANTES como DESPUÉS de la respuesta.
     """
     if not texto:
         return ""
 
-    # Buscar la primera ocurrencia de un saludo formal en español
+    # 1. ENCONTRAR EL INICIO (Corta todo lo que esté ANTES del saludo en español)
     patron_inicio = re.search(r'\b(Estimado|Hola|Bienvenido|Entiendo|Respecto|Sobre|Como CFO)\b', texto, re.IGNORECASE)
-
+    
     if patron_inicio:
-        # Extraer únicamente desde el saludo en adelante
-        posicion = patron_inicio.start()
-        texto_espanol = texto[posicion:].strip()
-        
-        # Si por alguna razón dentro del texto recortado quedaron líneas con etiquetas en inglés de borrador:
-        lineas = texto_espanol.split("\n")
-        lineas_limpias = []
-        for l in lineas:
-            l_lower = l.strip().lower()
-            if not any(k in l_lower for k in ["drafting:", "step 1:", "step 2:", "self-correction:", "language:"]):
-                lineas_limpias.append(l)
-        return "\n".join(lineas_limpias).strip()
+        texto = texto[patron_inicio.start():].strip()
 
-    # Si no se encontró un saludo claro, filtrar líneas que contengan términos de pensamiento en inglés
+    # 2. ENCONTRAR EL FINAL (Corta todo lo que el modelo escriba en inglés DESPUÉS del texto)
+    # Marcadres típicos donde el modelo empieza a autoevaluarse en inglés al final:
+    patrones_corte_final = [
+        r"\n\s*Wait\b", r"\n\s*Check\b", r"\n\s*Self-Correction", 
+        r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint", 
+        r"\n\s*Evaluation:", r"\n\s*Liquidity Analysis:"
+    ]
+
+    for patron in patrones_corte_final:
+        corte = re.search(patron, texto, re.IGNORECASE)
+        if corte:
+            texto = texto[:corte.start()].strip()
+
+    # 3. FILTRADO LÍNEA POR LÍNEA DE RESPALDO
     lineas = texto.split("\n")
     lineas_limpias = []
-    palabras_ingles = [
-        "role:", "scenario", "financial data", "current assets", "current liabilities",
-        "income statement", "student's", "validation", "accounting analysis", "step 1",
-        "acid test calculation", "interpretation:", "socratic challenge", "tone:", 
-        "language:", "self-correction", "drafting", "goal:", "missing link:"
+    palabras_basura_ingles = [
+        "role:", "constraint", "case a:", "case b:", "case c:", "data:",
+        "required content:", "language:", "greeting:", "evaluation:",
+        "liquidity analysis:", "socratic questions:", "self-correction",
+        "drafting", "acid test calculation", "check constraints", "wait,"
     ]
 
     for l in lineas:
         l_lower = l.strip().lower()
-        if not any(p in l_lower for p in palabras_ingles) and len(l.strip()) > 0:
+        if not any(b in l_lower for b in palabras_basura_ingles):
             lineas_limpias.append(l)
 
     return "\n".join(lineas_limpias).strip()
     
-
 # ==========================================
 #  INICIALIZACIÓN DEL ESTADO DE SESIÓN
 # ==========================================
@@ -172,33 +173,34 @@ def sanitizar_texto_cfo(texto):
 
 def llamar_gemini_api(historial_mensajes, caso_info):
     """
-    Llama a la API de Gemini forzando el inicio directo en español y sin plantillas internas.
+    Llama a Gemini forzando una respuesta ejecutiva limpia en español.
     """
     system_instruction = (
-        "TU PRIMERA PALABRA DEBE SER 'Estimado'. ESTÁ STRICTLY PROHIBIDO ESCRIBIR CUALQUIER TEXTO EN INGLÉS, "
-        "NOTAS DE ANÁLISIS, BORRADORES O ESTRUCTURAS COMO 'Role:', 'Step 1' O 'Drafting'.\n\n"
-        "ROL: Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
-        f"CASO: {caso_info['titulo']} ({caso_info['entorno']}).\n"
-        f"DATOS: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
-        "Responde directamente en español al estudiante evaluando su propuesta con rigor de CFO. "
-        "Agradece sus aciertos en liquidez/operaciones, cuestiona la valoración de inventarios según la NIC 2 / IAS 2 "
-        "(Costo vs. Valor Neto Realizable) y muestra explícitamente el cálculo de la Prueba Ácida: "
-        "(Efectivo + Cuentas por Cobrar) / Pasivo Corriente. Cierra con preguntas socráticas."
+        "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
+        "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas, "
+        "ni revisiones, ni análisis en inglés antes o después de tu respuesta.\n\n"
+        f"CASO EVALUADO: {caso_info['titulo']} ({caso_info['entorno']}).\n"
+        f"DATOS CLAVE: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
+        "ESTRUCTURA OBLIGATORIA DE TU RESPUESTA:\n"
+        "1. Inicia con 'Estimado estudiante,' o 'Estimado [Nombre],'.\n"
+        "2. Valida sus aciertos en liquidez y operaciones.\n"
+        "3. Analiza la NIC 2 / IAS 2 sobre el inventario (Costo vs. Valor Neto Realizable - VNR).\n"
+        "4. Muestra el cálculo explícito de la Prueba Ácida: (Efectivo + Cuentas por Cobrar) / Pasivo Corriente.\n"
+        "5. Cierra con 2 preguntas socráticas de toma de decisiones.\n"
+        "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
     )
 
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
-        # Limpieza previa del historial para no contaminar al modelo con borradores pasados
+        # Limpieza previa del historial enviado para no re-contaminar al modelo
         contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
     modelos_candidatos = [
         "gemini-2.0-flash",
         "gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
-        "models/gemini-2.0-flash",
-        "models/gemini-1.5-flash"
+        "gemini-1.5-flash-8b"
     ]
     
     ultimo_error = None
@@ -212,8 +214,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.2,
-                    max_output_tokens=2048  # Aumentado a 2048 para evitar cortes a mitad de respuesta
+                    temperature=0.1,  # Temperatura baja para evitar divagaciones/autoevaluaciones
+                    max_output_tokens=1200
                 )
             )
             if response and response.text:
@@ -224,34 +226,8 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             ultimo_error = str(e)
             continue
 
-    # Respaldo dinámico
-    try:
-        modelos_activos = [
-            m.name for m in genai.list_models() 
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        
-        for mod_activo in modelos_activos:
-            try:
-                model = genai.GenerativeModel(model_name=mod_activo, system_instruction=system_instruction)
-                response = model.generate_content(
-                    contents,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.2, 
-                        max_output_tokens=2048
-                    )
-                )
-                if response and response.text:
-                    texto_limpio = sanitizar_texto_cfo(response.text)
-                    if texto_limpio:
-                        return texto_limpio
-            except Exception as e:
-                ultimo_error = str(e)
-                continue
-    except Exception as e:
-        ultimo_error = str(e)
+    raise Exception(f"Error técnico en la llamadas: {ultimo_error}")
 
-    raise Exception(f"Detalle técnico de la llamada: {ultimo_error}")
 # ==========================================
 #     PANEL LATERAL
 # ==========================================
