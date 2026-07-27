@@ -10,6 +10,11 @@ import pandas as pd
 import streamlit as st
 import google.generativeai as genai
 
+# Configurar la API Key desde st.secrets
+if "GEMINI_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+else:
+    st.error("Falta la clave GEMINI_API_KEY en st.secrets")
 # ==============================================================================
 # 2. FUNCIONES DE APOYO Y UTILIDADES
 # ==============================================================================
@@ -224,14 +229,28 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
         "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
     )
 
-    contents = []
+   contents = []
     for m in historial_mensajes:
-        role = "user" if m["role"] == "user" else "model"
-        contenido = sanitizar_texto_cfo(m["content"], nombre_estudiante) if role == "model" else m["content"]
-        contents.append({"role": role, "parts": [{"text": contenido}]})
+        # 1. Normalizar el rol para Gemini ('assistant' de Streamlit pasa a ser 'model')
+        es_usuario = m["role"] == "user"
+        role = "user" if es_usuario else "model"
+        
+        # 2. Sanitizar solo si es respuesta del modelo
+        if es_usuario:
+            contenido = m["content"]
+        else:
+            contenido = sanitizar_texto_cfo(m["content"], nombre_estudiante)
+        
+        # 3. Solo agregar si el texto no está vacío (evita payloads corruptos)
+        if contenido and contenido.strip():
+            contents.append({
+                "role": role, 
+                "parts": [{"text": contenido.strip()}]
+            })
 
     modelos_candidatos = ["gemini-2.0-flash", "gemini-1.5-flash"]
     
+ # Al final de llamar_gemini_api:
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(model_name=mod, system_instruction=system_instruction)
@@ -246,10 +265,13 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
                 if texto_limpio:
                     return texto_limpio
-        except Exception:
+        except Exception as e:
+            # IMPRIME EL ERROR EN CONSOLA PARA DIAGNÓSTICO
+            print(f"Error con modelo {mod}: {e}")
             continue
 
-    raise Exception("Error al conectar con el servicio de IA.")
+    # Mensaje temporal con detalle de la falla:
+    raise Exception("No se pudo obtener respuesta de ningún modelo de Gemini. Revisa la API Key o los logs.")
 
 # ==========================================
 #     PANEL LATERAL
