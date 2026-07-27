@@ -252,6 +252,9 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
     
     # Modelos candidatos
     modelos_candidatos = [
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.0-flash"
         "gemini-2.5-flash"       
     ]
 
