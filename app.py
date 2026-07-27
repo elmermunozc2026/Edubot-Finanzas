@@ -219,8 +219,8 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
 
     return sanitizar_texto_cfo(response.text, nombre_estudiante)
 
-except Exception as e:
-    raise Exception(f"Error de Gemini: {e}")
+    except Exception as e:
+        raise Exception(f"Error de Gemini: {e}")
 
    
     
