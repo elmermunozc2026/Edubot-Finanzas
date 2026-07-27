@@ -11,20 +11,31 @@ import google.generativeai as genai
 # ==============================================================================
 def sanitizar_texto_cfo(texto):
     """
-    Extrae ÚNICAMENTE el bloque en español dirigido al estudiante.
-    Elimina cualquier borrador en inglés tanto ANTES como DESPUÉS de la respuesta.
+    Extrae estrictamente la respuesta ejecutiva en español.
+    Elimina cualquier borrador, nota o razonamiento interno en inglés.
     """
     if not texto:
         return ""
 
-    # 1. ENCONTRAR EL INICIO (Corta todo lo que esté ANTES del saludo en español)
-    patron_inicio = re.search(r'\b(Estimado|Hola|Bienvenido|Entiendo|Respecto|Sobre|Como CFO)\b', texto, re.IGNORECASE)
+    # 1. Buscar la primera ocurrencia de un saludo o inicio formal en español
+    patrones_inicio = [
+        r'Estimado\b', r'Hola\b', r'Bienvenido\b', 
+        r'Entiendo\b', r'Respecto\b', r'Sobre\b', r'Como CFO\b'
+    ]
     
-    if patron_inicio:
-        texto = texto[patron_inicio.start():].strip()
+    posicion_inicio = -1
+    for patron in patrones_inicio:
+        match = re.search(patron, texto, re.IGNORECASE)
+        if match:
+            # Si encontramos varios, nos quedamos con el primero que aparezca
+            if posicion_inicio == -1 or match.start() < posicion_inicio:
+                posicion_inicio = match.start()
 
-    # 2. ENCONTRAR EL FINAL (Corta todo lo que el modelo escriba en inglés DESPUÉS del texto)
-    # Marcadres típicos donde el modelo empieza a autoevaluarse en inglés al final:
+    # Si se encontró el inicio en español, descartar TODO el texto previo en inglés
+    if posicion_inicio != -1:
+        texto = texto[posicion_inicio:].strip()
+
+    # 2. Cortar si el modelo vuelve a escribir autoevaluaciones en inglés al final
     patrones_corte_final = [
         r"\n\s*Wait\b", r"\n\s*Check\b", r"\n\s*Self-Correction", 
         r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint", 
@@ -36,19 +47,19 @@ def sanitizar_texto_cfo(texto):
         if corte:
             texto = texto[:corte.start()].strip()
 
-    # 3. FILTRADO LÍNEA POR LÍNEA DE RESPALDO
+    # 3. Filtrado secundario por si quedaron etiquetas sueltas
     lineas = texto.split("\n")
     lineas_limpias = []
-    palabras_basura_ingles = [
+    palabras_ingles = [
         "role:", "constraint", "case a:", "case b:", "case c:", "data:",
         "required content:", "language:", "greeting:", "evaluation:",
         "liquidity analysis:", "socratic questions:", "self-correction",
-        "drafting", "acid test calculation", "check constraints", "wait,"
+        "drafting", "acid test calculation", "check constraints"
     ]
 
     for l in lineas:
         l_lower = l.strip().lower()
-        if not any(b in l_lower for b in palabras_basura_ingles):
+        if not any(b in l_lower for b in palabras_ingles):
             lineas_limpias.append(l)
 
     return "\n".join(lineas_limpias).strip()
