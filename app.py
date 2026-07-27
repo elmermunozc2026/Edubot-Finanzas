@@ -133,47 +133,60 @@ if "messages" not in st.session_state:
 if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
 
-import os
-import re
-import time
-import streamlit as st
-import google.generativeai as genai
-
 # ==========================================
 #  FUNCIÓN DE LIMPIEZA DE METADATOS Y DRAFTS
 # ==========================================
+import re
+import google.generativeai as genai
 
 def sanitizar_texto_cfo(texto):
-    """Limpia borradores internos y metadatos en inglés."""
+    """
+    Extrae ÚNICAMENTE el cuerpo de la respuesta en español dirigido al estudiante.
+    Corta de forma limpia cualquier borrador o razonamiento en inglés (arriba o abajo).
+    """
     if not texto:
         return ""
-    
-    # Si hay un bloque de borrador/refinamiento, conservar la última parte
-    for separador in ["Drafting the response:", "Refining:", "Response:", "Draft:"]:
-        if separador in texto:
-            texto = texto.split(separador)[-1]
 
-    etiquetas_prohibidas = [
-        "role:", "scenario:", "financial data:", "user question:", "rules:", 
-        "step 1:", "step 2:", "step 3:", "applying the socratic", "drafting"
+    # 1. CORTE SUPERIOR: Buscar el inicio real del saludo en español
+    patron_inicio = re.search(r'\b(Estimado|Hola|Bienvenido|Entiendo|Respecto|Sobre|Como CFO)\b', texto, re.IGNORECASE)
+    if patron_inicio:
+        texto = texto[patron_inicio.start():].strip()
+
+    # 2. CORTE INFERIOR: Eliminar autoevaluaciones en inglés que el modelo añade al final
+    patrones_corte_final = [
+        r"\n\s*Wait\b", r"\n\s*Check\b", r"\n\s*Self-Correction", 
+        r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint", 
+        r"\n\s*Evaluation:", r"\n\s*Liquidity Analysis:", r"\n\s*Check Constraints"
     ]
-    
+
+    for patron in patrones_corte_final:
+        corte = re.search(patron, texto, re.IGNORECASE)
+        if corte:
+            texto = texto[:corte.start()].strip()
+
+    # 3. FILTRADO SECUNDARIO LÍNEA POR LÍNEA
     lineas = texto.split("\n")
-    lineas_limpias = [
-        l for l in lineas 
-        if not any(l.strip().lower().startswith(tag) for tag in etiquetas_prohibidas)
+    lineas_limpias = []
+    palabras_basura_ingles = [
+        "role:", "constraint", "case a:", "case b:", "case c:", "data:",
+        "required content:", "language:", "greeting:", "evaluation:",
+        "liquidity analysis:", "socratic questions:", "self-correction",
+        "drafting", "acid test calculation", "check constraints", "wait,"
     ]
-    
-    resultado = "\n\n".join(lineas_limpias).strip()
-    return resultado if resultado else texto.strip()
-    
+
+    for l in lineas:
+        l_lower = l.strip().lower()
+        if not any(b in l_lower for b in palabras_basura_ingles):
+            lineas_limpias.append(l)
+
+    return "\n".join(lineas_limpias).strip()
+
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
-
 def llamar_gemini_api(historial_mensajes, caso_info):
     """
-    Llama a Gemini forzando una respuesta ejecutiva limpia en español.
+    Llama a Gemini usando modelos validados y forzando respuesta ejecutiva en español.
     """
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
@@ -197,14 +210,15 @@ def llamar_gemini_api(historial_mensajes, caso_info):
         contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
+    # Lista con los nombres exactos y estándar de la API de Google
     modelos_candidatos = [
         "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b"
+        "gemini-1.5-flash"
     ]
     
     ultimo_error = None
 
+    # Intentar con los modelos preferidos de alta disponibilidad
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
@@ -214,7 +228,7 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,  # Temperatura baja para evitar divagaciones/autoevaluaciones
+                    temperature=0.1,
                     max_output_tokens=1200
                 )
             )
@@ -226,7 +240,37 @@ def llamar_gemini_api(historial_mensajes, caso_info):
             ultimo_error = str(e)
             continue
 
-    raise Exception(f"Error técnico en la llamadas: {ultimo_error}")
+    # Respaldo dinámico: Consultar directamente a la API qué modelos tiene habilitados tu clave
+    try:
+        modelos_disponibles = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        for mod_activo in modelos_disponibles:
+            try:
+                model = genai.GenerativeModel(
+                    model_name=mod_activo, 
+                    system_instruction=system_instruction
+                )
+                response = model.generate_content(
+                    contents,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.1, 
+                        max_output_tokens=1200
+                    )
+                )
+                if response and response.text:
+                    texto_limpio = sanitizar_texto_cfo(response.text)
+                    if texto_limpio:
+                        return texto_limpio
+            except Exception as e:
+                ultimo_error = str(e)
+                continue
+    except Exception as e:
+        ultimo_error = str(e)
+
+    raise Exception(f"Detalle técnico de la llamada: {ultimo_error}")
 
 # ==========================================
 #     PANEL LATERAL
