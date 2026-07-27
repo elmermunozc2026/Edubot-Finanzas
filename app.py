@@ -252,8 +252,7 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
     
     # Modelos candidatos
     modelos_candidatos = [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
+        "gemini-2.5-flash"       
     ]
 
     ultimo_error = None
@@ -282,8 +281,14 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                     return texto_limpio
 
         except Exception as e:
-            ultimo_error = f"[{mod}]: {e}"
-            print(f"Error con modelo {mod}: {e}")
+    import traceback
+
+    print("=" * 80)
+    print(f"MODELO: {mod}")
+    print(traceback.format_exc())
+    print("=" * 80)
+
+    ultimo_error = f"[{mod}]: {e}"
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
 
