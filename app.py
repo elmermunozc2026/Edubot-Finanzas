@@ -389,3 +389,26 @@ with col_interactiva:
                         total_preguntas = len(st.session_state.preguntas_examen)
                         nota_final = (respuestas_correctas / total_preguntas) * 20
                         st.metric(label="Calificación Obtendida", value=f"{nota_final:.1f} / 20.0")
+# =========================================================
+# PIE DE PÁGINA / LATERAL: BOTÓN DE CERRAR SESIÓN
+# =========================================================
+import streamlit as st
+
+# 1. Definir el botón de cerrar sesión en la consola lateral
+def mostrar_boton_logout():
+    with st.sidebar:
+        st.markdown("---")  # Línea separadora
+        if st.button("🚪 Cerrar Sesión", use_container_width=True, type="secondary"):
+            # A. Limpiar las variables de estado que guardan la sesión del usuario
+            st.session_state.clear()
+            
+            # B. Si tienes variables específicas, también puedes borrarlas manualmente:
+            # st.session_state["messages"] = []
+            # st.session_state["usuario_autenticado"] = False
+            
+            # C. Recargar la aplicación para regresar al inicio
+            st.rerun()
+
+# Ejemplo de uso dentro de tu app:
+mostrar_boton_logout()
+
