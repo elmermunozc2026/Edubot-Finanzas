@@ -221,7 +221,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                 contents,
                 generation_config={
                     "temperature": 0.1,
-                    "max_output_tokens": 1200
+                    "max_output_tokens": 2500
                 }
             )
 
