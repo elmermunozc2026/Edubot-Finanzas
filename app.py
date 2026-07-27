@@ -1,3 +1,7 @@
+# ==============================================================================
+# 1. IMPORTS
+# ==============================================================================
+
 import os
 import re
 import time
@@ -7,39 +11,61 @@ import streamlit as st
 import google.generativeai as genai
 
 # ==============================================================================
-# FUNCIÓN DE LIMPIEZA Y SANITIZACIÓN
+# 2. FUNCIONES DE APOYO Y UTILIDADES
 # ==============================================================================
-def sanitizar_texto_cfo(texto):
+def obtener_nombre_desde_email(email):
     """
-    Extrae estrictamente la respuesta ejecutiva en español.
-    Elimina cualquier borrador, nota o razonamiento interno en inglés.
+    Extrae un nombre presentable a partir de un correo electrónico.
+    Ejemplo: 'elmer.munoz@gmail.com' -> 'Elmer Muñoz' (o 'Elmer Munoz')
+    """
+    if not email or "@" not in email:
+        return "Estudiante"
+    
+    # 1. Tomar solo la parte anterior al @
+    usuario = email.split("@")[0]
+    
+    # 2. Reemplazar puntos, guiones bajos o guiones por espacios
+    partes = re.split(r'[\._\-]', usuario)
+    
+    # 3. Capitalizar cada parte (ej: 'elmer' -> 'Elmer')
+    nombre_formateado = " ".join([p.capitalize() for p in partes if p and not p.isdigit()])
+    
+    return nombre_formateado if nombre_formateado else "Estudiante"
+
+# ==============================================================================
+# 3.FUNCIÓN DE LIMPIEZA Y SANITIZACIÓN
+# ==============================================================================
+def sanitizar_texto_cfo(texto, nombre_estudiante="Estudiante"):
+    """
+    Extrae la respuesta en español buscando el saludo personalizado.
     """
     if not texto:
         return ""
 
-    # 1. Buscar la primera ocurrencia de un saludo o inicio formal en español
+    primer_nombre = nombre_estudiante.split()[0] if nombre_estudiante else "Estudiante"
+
+    # Patrones de búsqueda que consideran el nombre formateado
     patrones_inicio = [
-        r'Estimado\b', r'Hola\b', r'Bienvenido\b', 
-        r'Entiendo\b', r'Respecto\b', r'Sobre\b', r'Como CFO\b'
+        rf'Estimado\s+{re.escape(nombre_estudiante)}',
+        rf'Estimado\s+{re.escape(primer_nombre)}',
+        r'Estimado\s+estudiante',
+        r'Estimado\b', r'Hola\b', r'Bienvenido\b'
     ]
     
     posicion_inicio = -1
     for patron in patrones_inicio:
         match = re.search(patron, texto, re.IGNORECASE)
         if match:
-            # Si encontramos varios, nos quedamos con el primero que aparezca
             if posicion_inicio == -1 or match.start() < posicion_inicio:
                 posicion_inicio = match.start()
 
-    # Si se encontró el inicio en español, descartar TODO el texto previo en inglés
     if posicion_inicio != -1:
         texto = texto[posicion_inicio:].strip()
 
-    # 2. Cortar si el modelo vuelve a escribir autoevaluaciones en inglés al final
+    # Filtro para cortar borradores en inglés al final
     patrones_corte_final = [
         r"\n\s*Wait\b", r"\n\s*Check\b", r"\n\s*Self-Correction", 
-        r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint", 
-        r"\n\s*Evaluation:", r"\n\s*Liquidity Analysis:"
+        r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint"
     ]
 
     for patron in patrones_corte_final:
@@ -47,25 +73,10 @@ def sanitizar_texto_cfo(texto):
         if corte:
             texto = texto[:corte.start()].strip()
 
-    # 3. Filtrado secundario por si quedaron etiquetas sueltas
-    lineas = texto.split("\n")
-    lineas_limpias = []
-    palabras_ingles = [
-        "role:", "constraint", "case a:", "case b:", "case c:", "data:",
-        "required content:", "language:", "greeting:", "evaluation:",
-        "liquidity analysis:", "socratic questions:", "self-correction",
-        "drafting", "acid test calculation", "check constraints"
-    ]
-
-    for l in lineas:
-        l_lower = l.strip().lower()
-        if not any(b in l_lower for b in palabras_ingles):
-            lineas_limpias.append(l)
-
-    return "\n".join(lineas_limpias).strip()
-    
+    return texto
+   
 # ==========================================
-#  INICIALIZACIÓN DEL ESTADO DE SESIÓN
+#  4.INICIALIZACIÓN DEL ESTADO DE SESIÓN
 # ==========================================
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -74,7 +85,7 @@ if "nombre_estudiante" not in st.session_state:
     st.session_state.nombre_estudiante = ""
 
 # ==========================================
-#      CONTROL DE ACCESO (LOGIN OBLIGATORIO)
+#  5.CONTROL DE ACCESO (LOGIN OBLIGATORIO)
 # ==========================================
 if not st.session_state.autenticado:
     st.title("🔐 Acceso Autorizado - Edubot Finanzas")
@@ -195,20 +206,19 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
-def llamar_gemini_api(historial_mensajes, caso_info):
+def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudiante"):
     """
-    Llama a Gemini usando modelos validados y forzando respuesta ejecutiva en español.
+    Llama a Gemini inyectando directamente el nombre de la sesión.
     """
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
-        "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas, "
-        "ni revisiones, ni análisis en inglés antes o después de tu respuesta.\n\n"
+        "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas ni en inglés.\n\n"
         f"CASO EVALUADO: {caso_info['titulo']} ({caso_info['entorno']}).\n"
         f"DATOS CLAVE: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
         "ESTRUCTURA OBLIGATORIA DE TU RESPUESTA:\n"
-        "1. Inicia con 'Estimado estudiante,' o 'Estimado [Nombre],'.\n"
+        f"1. Inicia OBLIGATORIAMENTE con el saludo exacto: 'Estimado {nombre_estudiante},'\n"
         "2. Valida sus aciertos en liquidez y operaciones.\n"
-        "3. Analiza la NIC 2 / IAS 2 sobre el inventario (Costo vs. Valor Neto Realizable - VNR).\n"
+        "3. Analiza la NIC 2 / IAS 2 sobre el inventario (Costo vs. VNR).\n"
         "4. Muestra el cálculo explícito de la Prueba Ácida: (Efectivo + Cuentas por Cobrar) / Pasivo Corriente.\n"
         "5. Cierra con 2 preguntas socráticas de toma de decisiones.\n"
         "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
@@ -217,25 +227,14 @@ def llamar_gemini_api(historial_mensajes, caso_info):
     contents = []
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
-        # Limpieza previa del historial enviado para no re-contaminar al modelo
-        contenido = sanitizar_texto_cfo(m["content"]) if role == "model" else m["content"]
+        contenido = sanitizar_texto_cfo(m["content"], nombre_estudiante) if role == "model" else m["content"]
         contents.append({"role": role, "parts": [{"text": contenido}]})
 
-    # Lista con los nombres exactos y estándar de la API de Google
-    modelos_candidatos = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
-    ]
+    modelos_candidatos = ["gemini-2.0-flash", "gemini-1.5-flash"]
     
-    ultimo_error = None
-
-    # Intentar con los modelos preferidos de alta disponibilidad
     for mod in modelos_candidatos:
         try:
-            model = genai.GenerativeModel(
-                model_name=mod,
-                system_instruction=system_instruction
-            )
+            model = genai.GenerativeModel(model_name=mod, system_instruction=system_instruction)
             response = model.generate_content(
                 contents,
                 generation_config=genai.types.GenerationConfig(
@@ -244,44 +243,13 @@ def llamar_gemini_api(historial_mensajes, caso_info):
                 )
             )
             if response and response.text:
-                texto_limpio = sanitizar_texto_cfo(response.text)
+                texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
                 if texto_limpio:
                     return texto_limpio
-        except Exception as e:
-            ultimo_error = str(e)
+        except Exception:
             continue
 
-    # Respaldo dinámico: Consultar directamente a la API qué modelos tiene habilitados tu clave
-    try:
-        modelos_disponibles = [
-            m.name for m in genai.list_models() 
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        
-        for mod_activo in modelos_disponibles:
-            try:
-                model = genai.GenerativeModel(
-                    model_name=mod_activo, 
-                    system_instruction=system_instruction
-                )
-                response = model.generate_content(
-                    contents,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.1, 
-                        max_output_tokens=1200
-                    )
-                )
-                if response and response.text:
-                    texto_limpio = sanitizar_texto_cfo(response.text)
-                    if texto_limpio:
-                        return texto_limpio
-            except Exception as e:
-                ultimo_error = str(e)
-                continue
-    except Exception as e:
-        ultimo_error = str(e)
-
-    raise Exception(f"Detalle técnico de la llamada: {ultimo_error}")
+    raise Exception("Error al conectar con el servicio de IA.")
 
 # ==========================================
 #     PANEL LATERAL
@@ -298,9 +266,12 @@ with st.sidebar:
         st.rerun()
 
 # ==========================================
-#     DISTRIBUCIÓN DE PANTALLA
+#      DISTRIBUCIÓN DE PANTALLA
 # ==========================================
 col_datos, col_interactiva = st.columns([0.4, 0.6])
+
+# Aseguramos la variable local por si acaso no viniera definida
+nombre_estudiante = st.session_state.get("nombre_estudiante", "Estudiante")
 
 with col_datos:
     st.title("📊 Estados Financieros")
@@ -341,7 +312,12 @@ with col_interactiva:
             
             try:
                 with st.spinner("El CFO evalúa tu respuesta..."):
-                    respuesta_texto = llamar_gemini_api(st.session_state.messages, caso_actual)
+                    # CAMBIO 1: Enviamos el nombre del estudiante registrado
+                    respuesta_texto = llamar_gemini_api(
+                        st.session_state.messages, 
+                        caso_actual, 
+                        nombre_estudiante
+                    )
                     
                 with chat_container:
                     st.chat_message("assistant").write(respuesta_texto)
@@ -369,7 +345,12 @@ with col_interactiva:
                             del st.session_state[k]
                             
                     historial_eval = st.session_state.messages + [{"role": "user", "content": prompt_evaluacion}]
-                    response_json = llamar_gemini_api(historial_eval, caso_actual)
+                    # CAMBIO 2: Pasamos el nombre del estudiante también aquí
+                    response_json = llamar_gemini_api(
+                        historial_eval, 
+                        caso_actual, 
+                        nombre_estudiante
+                    )
                     response_json = response_json.replace("```json", "").replace("```", "").strip()
                     st.session_state.preguntas_examen = json.loads(response_json)["preguntas"]
                     st.success("¡Examen generado exitosamente!")
