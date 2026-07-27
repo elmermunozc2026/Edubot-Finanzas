@@ -174,61 +174,49 @@ if "preguntas_examen" not in st.session_state:
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
-
-def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
+def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="breve"):
     api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise Exception("No se encontró la variable GEMINI_API_KEY en los Secrets de Streamlit.")
+        raise Exception("No se encontró la variable GEMINI_API_KEY.")
 
     genai.configure(api_key=api_key)
 
-    system_instruction = (
-        "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
-        "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas ni en inglés.\n\n"
-        f"CASO EVALUADO: {caso_actual['titulo']} ({caso_actual['entorno']}).\n"
-        f"DATOS CLAVE: Balance ({caso_actual['balance_a2']}) | Resultados ({caso_actual['resultados_a2']}).\n\n"
-        f"1. Inicia OBLIGATORIAMENTE con el saludo exacto: 'Estimado {nombre_estudiante},'\n"
-        "2. Valida sus aciertos en liquidez y operaciones.\n"
-        "3. Analiza la NIC 2 / IAS 2 sobre el inventario (Costo vs. VNR).\n"
-        "4. Muestra el cálculo explícito de la Prueba Ácida.\n"
-        "5. Cierra con 2 preguntas socráticas de toma de decisiones.\n"
-    )
+    if modo == "breve":
+        system_instruction = (
+            f"Eres el CFO de una minera. Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
+            "Da una respuesta breve, clara y pedagógica. "
+            "Incluye solo: saludo, validación breve, 1 cálculo corto, 1 recomendación principal y 1 pregunta final."
+        )
+        max_tokens = 900
+    else:
+        system_instruction = (
+            f"Eres el CFO de una minera. Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
+            "Amplía el análisis con más detalle: NIC 2, liquidez, prueba ácida y preguntas socráticas."
+        )
+        max_tokens = 2200
 
     contents = []
     for m in historial_mensajes:
-        es_usuario = m["role"] == "user"
-        role = "user" if es_usuario else "model"
-        contenido = m["content"] if es_usuario else sanitizar_texto_cfo(m["content"], nombre_estudiante)
-        if contenido and contenido.strip():
+        role = "user" if m["role"] == "user" else "model"
+        contenido = m["content"] if role == "user" else sanitizar_texto_cfo(m["content"], nombre_estudiante)
+        if contenido.strip():
             contents.append({"role": role, "parts": [{"text": contenido.strip()}]})
 
-    modelos_candidatos = [
-        "gemini-3.5-flash",
-         "gemini-3.6-flash"
-       
-    ]
+    model = genai.GenerativeModel(
+        model_name="gemini-3.6-flash",
+        system_instruction=system_instruction
+    )
 
-    ultimo_error = None
+    response = model.generate_content(
+        contents,
+        generation_config={
+            "temperature": 0.1,
+            "max_output_tokens": max_tokens
+        }
+    )
 
-    for mod in modelos_candidatos:
-        try:
-            model = genai.GenerativeModel(
-                model_name=mod,
-                system_instruction=system_instruction
-            )
+    return sanitizar_texto_cfo(response.text, nombre_estudiante)
 
-            response = model.generate_content(
-                contents,
-                generation_config={
-                    "temperature": 0.1,
-                    "max_output_tokens": 2500
-                }
-            )
-
-            if response and response.text:
-                texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
-                if texto_limpio:
-                    return texto_limpio
 
         except Exception as e:
             ultimo_error = f"[{mod}]: {str(e)}"
@@ -308,7 +296,16 @@ with col_interactiva:
                     st.chat_message("assistant").write(respuesta_texto)
                     
                 st.session_state.messages.append({"role": "assistant", "content": respuesta_texto})
-                
+        if st.button("Ampliar explicación"):
+            respuesta_larga = llamar_gemini_api(
+                st.session_state.messages,
+                caso_actual,
+                nombre_estudiante,
+                modo="amplio"
+            )
+            st.chat_message("assistant").write(respuesta_larga)
+            st.session_state.messages.append({"role": "assistant", "content": respuesta_larga})
+                       
             except Exception as e:
                 st.error(f"Error en la interacción: {e}")
                 
