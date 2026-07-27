@@ -256,7 +256,6 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
     ]
 
     ultimo_error = None
-
 for mod in modelos_candidatos:
     try:
         model = genai.GenerativeModel(
