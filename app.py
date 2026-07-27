@@ -212,10 +212,8 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
-def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudiante"):
-    """
-    Llama a Gemini inyectando directamente el nombre de la sesión.    
-    """
+def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
+    # Conserva tu system_instruction detallado y completo
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
         "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas ni en inglés.\n\n"
@@ -241,16 +239,22 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 "parts": [{"text": contenido.strip()}]
             })
 
- # Modelos activos con alias estables para la API de Google AI Studio
-    modelos_candidatos = [
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro-latest",
-        "gemini-1.5-flash-002",
-        "gemini-1.5-pro-002"
-    ]
+    # 1. Obtener dinámicamente los modelos válidos para tu API Key
+    modelos_candidatos = []
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                modelos_candidatos.append(m.name)
+    except Exception as e:
+        print(f"Error al listar modelos: {e}")
+
+    # Respaldos si la consulta fallara
+    if not modelos_candidatos:
+        modelos_candidatos = ["gemini-1.5-flash", "gemini-1.5-pro"]
 
     ultimo_error = None
 
+    # 2. Iterar sobre los modelos detectados
     for mod in modelos_candidatos:
         try:
             model = genai.GenerativeModel(
