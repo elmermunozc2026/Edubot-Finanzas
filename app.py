@@ -191,7 +191,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
         max_tokens = 900
     else:
         system_instruction = (
-            f"Eres el CFO de una minera. Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
+            f"Eres el CFO de una empresa minera transnacional y tienes experiencia en la gran minería, mediana minería y pequeña minería. Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
             "Amplía el análisis."
         )
         max_tokens = 2200
