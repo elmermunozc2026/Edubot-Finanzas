@@ -241,7 +241,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
             contents.append({"role": role, "parts": [{"text": contenido.strip()}]})
 
     modelos_candidatos = [
-        "gemini-2.5-flash"
+        "gemini-3.5-flash"
        
     ]
 
