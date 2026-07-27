@@ -251,7 +251,7 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
     modelos_candidatos = ["gemini-2.0-flash", "gemini-1.5-flash"]
     
  # Al final de llamar_gemini_api:
-   ultimo_error = None
+    ultimo_error = None
 
     for mod in modelos_candidatos:
         try:
