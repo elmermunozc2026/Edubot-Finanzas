@@ -6,6 +6,7 @@ import os
 import re
 import time
 import random
+import json
 import pandas as pd
 import streamlit as st
 import google.generativeai as genai
@@ -248,13 +249,11 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 "parts": [{"text": contenido.strip()}]
             })
 # Modelos con alias estables de Google AI Studio
-    modelos_candidatos = [
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-pro-latest",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
-    ]
-
+    
+modelos_candidatos = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro"
+]
     ultimo_error = None
 
     for mod in modelos_candidatos:
