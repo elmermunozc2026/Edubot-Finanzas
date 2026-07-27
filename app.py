@@ -184,7 +184,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
 
     if modo == "breve":
         system_instruction = (
-            f"Eres elCFO de una empresa minera transnacional y tienes experiencia amplia ( 30 años) en la gran minería, mediana minería y pequeña minería (Minería de tajo abierto y subterránea) y un profesor universitario de Finanzas. Responde en español y comienza con "
+            f"Actua como CFO global de mineras transnacionales  experiencia y formación  amplia (+ 30 años) en la gran minería, mediana minería y pequeña minería (Minería de tajo abierto y subterránea) y un profesor universitario de Finanzas. Responde en español y comienza con "
             f"'Estimado {nombre_estudiante},'. "
 
             "Da una respuesta breve, clara y pedagógica. "
@@ -204,7 +204,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
         max_tokens = 900
     else:
         system_instruction = (
-            f"Eres el CFO de una empresa minera transnacional y tienes experiencia amplia ( 30 años) en la gran minería, mediana minería y pequeña minería (Minería de tajo abierto y subterránea) y un profesor universitario de Finanzas. "
+            f"Actua como CFO global de mineras transnacionalescon experiencia y formación amplia (+ 30 años) en la gran minería, mediana minería y pequeña minería (Minería de tajo abierto y subterránea) y un profesor universitario de Finanzas. "
             f"Responde en español y comienza con 'Estimado {nombre_estudiante},'. "
     
             "Desarrolla una explicación completa y pedagógica utilizando esta estructura: "
