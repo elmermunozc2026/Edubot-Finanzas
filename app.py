@@ -185,14 +185,14 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
     if modo == "breve":
         system_instruction = (
             f"Eres el CFO de una minera. Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
-            "Da una respuesta breve, clara y pedagógica. "
+            "Da una respuesta breve, clara y pedagógica."
             "Incluye solo: saludo, validación breve, 1 cálculo corto, 1 recomendación principal y 1 pregunta final."
         )
         max_tokens = 900
     else:
         system_instruction = (
             f"Eres el CFO de una minera. Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
-            "Amplía el análisis con más detalle: NIC 2, liquidez, prueba ácida y preguntas socráticas."
+            "Amplía el análisis."
         )
         max_tokens = 2200
 
@@ -201,26 +201,30 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
         role = "user" if m["role"] == "user" else "model"
         contenido = m["content"] if role == "user" else sanitizar_texto_cfo(m["content"], nombre_estudiante)
         if contenido.strip():
-            contents.append({"role": role, "parts": [{"text": contenido.strip()}]})
+            contents.append({
+                "role": role,
+                "parts": [{"text": contenido.strip()}]
+            })
 
-  try:
-    model = genai.GenerativeModel(
-        model_name="gemini-3.6-flash",
-        system_instruction=system_instruction
-    )
+    try:
+        model = genai.GenerativeModel(
+            model_name="gemini-3.6-flash",
+            system_instruction=system_instruction
+        )
 
-    response = model.generate_content(
-        contents,
-        generation_config={
-            "temperature": 0.1,
-            "max_output_tokens": max_tokens
-        }
-    )
+        response = model.generate_content(
+            contents,
+            generation_config={
+                "temperature": 0.1,
+                "max_output_tokens": max_tokens
+            }
+        )
 
-    return sanitizar_texto_cfo(response.text, nombre_estudiante)
+        return sanitizar_texto_cfo(response.text, nombre_estudiante)
 
     except Exception as e:
         raise Exception(f"Error de Gemini: {e}")
+
 
    
     
