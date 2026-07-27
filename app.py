@@ -227,7 +227,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
             "Cuando necesites realizar cálculos, escríbelos así: "
             "'Razón Corriente = Activo Corriente / Pasivo Corriente = 2,500 / 1,800 = 1.39'."
         )
-        max_tokens = 3500
+        max_tokens = 4096
 
     contents = []
     for m in historial_mensajes:
@@ -340,20 +340,25 @@ if user_input := st.chat_input("Escribe tu propuesta al CFO..."):
 if st.session_state.get("ultima_respuesta_breve"):
     if st.button("Ampliar explicación", use_container_width=True):
 
-        # Nuevo mensaje del usuario
-        st.session_state.messages.append({
-            "role": "user",
-            "content": (
-                "Amplía tu explicación anterior. "
-                "Profundiza el análisis financiero, desarrolla los cálculos "
-                "y explica los fundamentos contables con mayor detalle."
-            )
-        })
+        # Construimos un historial corto para la ampliación
+        historial_ampliacion = [
+            st.session_state.messages[-2],   # Última pregunta del estudiante
+            st.session_state.messages[-1],   # Última respuesta breve del CFO
+            {
+                "role": "user",
+                "content": (
+                    "Amplía únicamente la respuesta anterior. "
+                    "No la repitas desde el inicio. "
+                    "Continúa desarrollando el análisis financiero con mayor profundidad. "
+                    "Explica los cálculos paso a paso y fundamenta las recomendaciones."
+                )
+            }
+        ]
 
         try:
             with st.spinner("El CFO amplía el análisis..."):
                 respuesta_larga = llamar_gemini_api(
-                    st.session_state.messages,
+                    historial_ampliacion,
                     caso_actual,
                     nombre_estudiante,
                     modo="amplio"
@@ -370,7 +375,7 @@ if st.session_state.get("ultima_respuesta_breve"):
             st.session_state.ultima_respuesta_breve = None
 
         except Exception as e:
-            st.error(f"Error al ampliar la explicación: {e}")   
+            st.error(f"Error al ampliar la explicación: {e}")
                           
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
