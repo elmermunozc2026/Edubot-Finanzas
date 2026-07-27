@@ -213,10 +213,12 @@ def sanitizar_texto_cfo(texto):
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
-    # Asegurar configuración global con la API Key cargada desde los secrets
+    # Configuración explícita de la API Key desde Streamlit Secrets
     api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if api_key:
-        genai.configure(api_key=api_key)
+    if not api_key:
+        raise Exception("No se encontró la variable GEMINI_API_KEY en los Secrets de Streamlit.")
+    
+    genai.configure(api_key=api_key)
 
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
@@ -231,10 +233,9 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
         "5. Cierra con 2 preguntas socráticas de toma de decisiones.\n"
         "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
     )
-    
-    # Construir el contenido asegurando la instrucción del sistema al inicio
+
+    # Preparar el historial de mensajes
     contents = []
-    
     for m in historial_mensajes:
         es_usuario = m["role"] == "user"
         role = "user" if es_usuario else "model"
@@ -245,22 +246,22 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                 "parts": [{"text": contenido.strip()}]
             })
 
-    # Modelos compatibles directos sin sufijos conflictivos
+    # Modelos estándar para probar en orden
     modelos_candidatos = [
         "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-2.0-flash-exp"
+        "gemini-1.5-pro"
     ]
 
     ultimo_error = None
 
     for mod in modelos_candidatos:
         try:
-            # Inicialización estándar
+            # Creación del modelo con la instrucción del sistema
             model = genai.GenerativeModel(
                 model_name=mod,
                 system_instruction=system_instruction
             )
+            
             response = model.generate_content(
                 contents,
                 generation_config={
@@ -268,31 +269,16 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                     "max_output_tokens": 1200
                 }
             )
+            
             if response and response.text:
                 texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
                 if texto_limpio:
                     return texto_limpio
+
         except Exception as e:
-            # Si el error es por system_instruction en ese modelo, intentamos sin ese parámetro
-            try:
-                model_alt = genai.GenerativeModel(model_name=mod)
-                prompt_combinado = f"INSTRUCCIONES DEL SISTEMA:\n{system_instruction}\n\nHISTORIAL Y MENSAJE:\n"
-                contents_alt = [{"role": "user", "parts": [{"text": prompt_combinado}]}] + contents
-                response_alt = model_alt.generate_content(
-                    contents_alt,
-                    generation_config={
-                        "temperature": 0.1,
-                        "max_output_tokens": 1200
-                    }
-                )
-                if response_alt and response_alt.text:
-                    texto_limpio = sanitizar_texto_cfo(response_alt.text, nombre_estudiante)
-                    if texto_limpio:
-                        return texto_limpio
-            except Exception as e_alt:
-                ultimo_error = f"[{mod}]: {str(e_alt)}"
-                print(f"Error alternativo con modelo {mod}: {e_alt}")
-                continue
+            ultimo_error = f"[{mod}]: {str(e)}"
+            print(f"Error con modelo {mod}: {e}")
+            continue
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
     
