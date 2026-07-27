@@ -306,6 +306,17 @@ if user_input := st.chat_input("Escribe tu propuesta al CFO..."):
 
 if st.session_state.get("ultima_respuesta_breve"):
     if st.button("Ampliar explicación", use_container_width=True):
+
+        # Nuevo mensaje del usuario
+        st.session_state.messages.append({
+            "role": "user",
+            "content": (
+                "Amplía tu explicación anterior. "
+                "Profundiza el análisis financiero, desarrolla los cálculos "
+                "y explica los fundamentos contables con mayor detalle."
+            )
+        })
+
         try:
             with st.spinner("El CFO amplía el análisis..."):
                 respuesta_larga = llamar_gemini_api(
@@ -318,7 +329,11 @@ if st.session_state.get("ultima_respuesta_breve"):
             with chat_container:
                 st.chat_message("assistant").write(respuesta_larga)
 
-            st.session_state.messages.append({"role": "assistant", "content": respuesta_larga})
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": respuesta_larga
+            })
+
             st.session_state.ultima_respuesta_breve = None
 
         except Exception as e:
