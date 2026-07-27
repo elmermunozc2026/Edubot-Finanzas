@@ -213,6 +213,12 @@ def sanitizar_texto_cfo(texto):
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
+    # 1. Forzar la versión estable de la API v1 para evitar v1beta
+    try:
+        genai.configure(api_version="v1")
+    except Exception:
+        pass
+
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
         "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas ni en inglés.\n\n"
@@ -238,12 +244,12 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                 "parts": [{"text": contenido.strip()}]
             })
 
-    # Nombres con ruta completa requerida por la SDK para la versión de producción
+    # Modelos candidatos con nombres de la API v1
     modelos_candidatos = [
-        "models/gemini-1.5-flash",
-        "models/gemini-1.5-pro",
         "gemini-1.5-flash",
-        "gemini-1.5-pro"
+        "gemini-1.5-pro",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest"
     ]
 
     ultimo_error = None
