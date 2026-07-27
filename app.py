@@ -229,7 +229,23 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
         )
         max_tokens = 4096
 
-    contents = []
+    contents = [
+    {
+        "role": "user",
+        "parts": [{
+            "text":
+                f"CASO:\n"
+                f"{caso_actual['titulo']}\n\n"
+                f"Entorno:\n{caso_actual['entorno']}\n\n"
+                f"Balance:\n"
+                f"{caso_actual['balance_a1']}\n"
+                f"{caso_actual['balance_a2']}\n\n"
+                f"Estado de Resultados:\n"
+                f"{caso_actual['resultados_a1']}\n"
+                f"{caso_actual['resultados_a2']}"
+        }]
+    }
+]
     for m in historial_mensajes:
         role = "user" if m["role"] == "user" else "model"
         contenido = m["content"] if role == "user" else sanitizar_texto_cfo(m["content"], nombre_estudiante)
@@ -248,7 +264,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
         response = model.generate_content(
             contents,
             generation_config={
-                "temperature": 0.1,
+                "temperature": 0.25,
                 "max_output_tokens": max_tokens
             }
         )
