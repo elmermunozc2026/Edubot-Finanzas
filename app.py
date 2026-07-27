@@ -212,12 +212,12 @@ def sanitizar_texto_cfo(texto):
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
+
 def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
-    # Configuración explícita de la API Key desde Streamlit Secrets
     api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise Exception("No se encontró la variable GEMINI_API_KEY en los Secrets de Streamlit.")
-    
+
     genai.configure(api_key=api_key)
 
     system_instruction = (
@@ -225,43 +225,35 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
         "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas ni en inglés.\n\n"
         f"CASO EVALUADO: {caso_actual['titulo']} ({caso_actual['entorno']}).\n"
         f"DATOS CLAVE: Balance ({caso_actual['balance_a2']}) | Resultados ({caso_actual['resultados_a2']}).\n\n"
-        "ESTRUCTURA OBLIGATORIA DE TU RESPUESTA:\n"
         f"1. Inicia OBLIGATORIAMENTE con el saludo exacto: 'Estimado {nombre_estudiante},'\n"
         "2. Valida sus aciertos en liquidez y operaciones.\n"
         "3. Analiza la NIC 2 / IAS 2 sobre el inventario (Costo vs. VNR).\n"
-        "4. Muestra el cálculo explícito de la Prueba Ácida: (Efectivo + Cuentas por Cobrar) / Pasivo Corriente.\n"
+        "4. Muestra el cálculo explícito de la Prueba Ácida.\n"
         "5. Cierra con 2 preguntas socráticas de toma de decisiones.\n"
-        "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
     )
 
-    # Preparar el historial de mensajes
     contents = []
     for m in historial_mensajes:
         es_usuario = m["role"] == "user"
         role = "user" if es_usuario else "model"
         contenido = m["content"] if es_usuario else sanitizar_texto_cfo(m["content"], nombre_estudiante)
         if contenido and contenido.strip():
-            contents.append({
-                "role": role,
-                "parts": [{"text": contenido.strip()}]
-            })
+            contents.append({"role": role, "parts": [{"text": contenido.strip()}]})
 
-    # Modelos estándar para probar en orden
     modelos_candidatos = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
     ]
 
     ultimo_error = None
 
     for mod in modelos_candidatos:
         try:
-            # Creación del modelo con la instrucción del sistema
             model = genai.GenerativeModel(
                 model_name=mod,
                 system_instruction=system_instruction
             )
-            
+
             response = model.generate_content(
                 contents,
                 generation_config={
@@ -269,7 +261,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                     "max_output_tokens": 1200
                 }
             )
-            
+
             if response and response.text:
                 texto_limpio = sanitizar_texto_cfo(response.text, nombre_estudiante)
                 if texto_limpio:
@@ -277,7 +269,6 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
 
         except Exception as e:
             ultimo_error = f"[{mod}]: {str(e)}"
-            print(f"Error con modelo {mod}: {e}")
             continue
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
