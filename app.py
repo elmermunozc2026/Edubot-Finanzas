@@ -274,7 +274,6 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
             continue
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
-
     
 # ==========================================
 #     PANEL LATERAL
