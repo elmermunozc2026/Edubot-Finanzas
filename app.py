@@ -257,10 +257,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
 
     except Exception as e:
         raise Exception(f"Error de Gemini: {e}")
-
-
-   
-    
+     
 # ==========================================
 #     PANEL LATERAL
 # ==========================================
