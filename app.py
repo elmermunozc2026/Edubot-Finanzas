@@ -247,10 +247,14 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 "role": role, 
                 "parts": [{"text": contenido.strip()}]
             })
+# Modelos actualizados compatibles con generateContent
+    modelos_candidatos = [
+        "gemini-1.5-flash-latest",
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+        "gemini-pro"
+    ]
 
-    modelos_candidatos = ["gemini-2.0-flash", "gemini-1.5-flash"]
-    
- # Al final de llamar_gemini_api:
     ultimo_error = None
 
     for mod in modelos_candidatos:
@@ -271,12 +275,10 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 if texto_limpio:
                     return texto_limpio
         except Exception as e:
-            # GUARDAMOS EL ERROR REAL EN LA VARIABLE
             ultimo_error = f"[{mod}]: {str(e)}"
             print(f"Error con modelo {mod}: {e}")
             continue
 
-    # Ahora sí mostrará el mensaje técnico real que devuelve Google
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
 
 # ==========================================
