@@ -229,9 +229,9 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
         "TERMINA TU RESPUESTA INMEDIATAMENTE DESPUÉS DE LAS PREGUNTAS."
     )
 
-   contents = []
+    contents = []
     for m in historial_mensajes:
-        # 1. Normalizar el rol para Gemini ('assistant' de Streamlit pasa a ser 'model')
+        # 1. Normalizar el rol para Gemini
         es_usuario = m["role"] == "user"
         role = "user" if es_usuario else "model"
         
@@ -241,7 +241,7 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
         else:
             contenido = sanitizar_texto_cfo(m["content"], nombre_estudiante)
         
-        # 3. Solo agregar si el texto no está vacío (evita payloads corruptos)
+        # 3. Validar que el texto no esté vacío
         if contenido and contenido.strip():
             contents.append({
                 "role": role, 
