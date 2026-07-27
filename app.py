@@ -280,15 +280,15 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 if texto_limpio:
                     return texto_limpio
 
-   except Exception as e:
-    import traceback
+    except Exception as e:
+        import traceback
 
-    print("=" * 80)
-    print(f"MODELO: {mod}")
-    print(traceback.format_exc())
-    print("=" * 80)
+        print("=" * 80)
+        print(f"MODELO: {mod}")
+        print(traceback.format_exc())
+        print("=" * 80)
 
-    ultimo_error = f"[{mod}]: {e}"
+        ultimo_error = f"[{mod}]: {e}"
 
     raise Exception(f"Detalle técnico del error: {ultimo_error}")
 
