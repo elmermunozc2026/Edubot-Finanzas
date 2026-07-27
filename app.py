@@ -247,13 +247,12 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 "role": role, 
                 "parts": [{"text": contenido.strip()}]
             })
-# Lista de modelos con ruta completa para máxima compatibilidad con la SDK
+# Modelos con alias estables de Google AI Studio
     modelos_candidatos = [
-        "models/gemini-2.0-flash",
-        "models/gemini-1.5-flash",
-        "models/gemini-1.5-pro",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
+        "gemini-1.5-flash-8b",
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
     ]
 
     ultimo_error = None
