@@ -203,6 +203,7 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
         if contenido.strip():
             contents.append({"role": role, "parts": [{"text": contenido.strip()}]})
 
+  try:
     model = genai.GenerativeModel(
         model_name="gemini-3.6-flash",
         system_instruction=system_instruction
@@ -218,11 +219,10 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
 
     return sanitizar_texto_cfo(response.text, nombre_estudiante)
 
-    except Exception as e:
-            ultimo_error = f"[{mod}]: {str(e)}"
-        continue
+except Exception as e:
+    raise Exception(f"Error de Gemini: {e}")
 
-    raise Exception(f"Detalle técnico del error: {ultimo_error}")
+   
     
 # ==========================================
 #     PANEL LATERAL
