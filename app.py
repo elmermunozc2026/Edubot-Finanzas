@@ -247,12 +247,13 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
                 "role": role, 
                 "parts": [{"text": contenido.strip()}]
             })
-# Modelos actualizados compatibles con generateContent
+# Lista de modelos con ruta completa para máxima compatibilidad con la SDK
     modelos_candidatos = [
-        "gemini-1.5-flash-latest",
+        "models/gemini-2.0-flash",
+        "models/gemini-1.5-flash",
+        "models/gemini-1.5-pro",
         "gemini-2.0-flash",
-        "gemini-1.5-pro",
-        "gemini-pro"
+        "gemini-1.5-flash"
     ]
 
     ultimo_error = None
