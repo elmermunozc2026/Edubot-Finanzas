@@ -42,22 +42,18 @@ def obtener_nombre_desde_email(email):
 # 3.FUNCIÓN DE LIMPIEZA Y SANITIZACIÓN
 # ==============================================================================
 def sanitizar_texto_cfo(texto, nombre_estudiante="Estudiante"):
-    """
-    Extrae la respuesta en español buscando el saludo personalizado.
-    """
     if not texto:
         return ""
 
     primer_nombre = nombre_estudiante.split()[0] if nombre_estudiante else "Estudiante"
 
-    # Patrones de búsqueda que consideran el nombre formateado
     patrones_inicio = [
         rf'Estimado\s+{re.escape(nombre_estudiante)}',
         rf'Estimado\s+{re.escape(primer_nombre)}',
         r'Estimado\s+estudiante',
         r'Estimado\b', r'Hola\b', r'Bienvenido\b'
     ]
-    
+
     posicion_inicio = -1
     for patron in patrones_inicio:
         match = re.search(patron, texto, re.IGNORECASE)
@@ -68,10 +64,10 @@ def sanitizar_texto_cfo(texto, nombre_estudiante="Estudiante"):
     if posicion_inicio != -1:
         texto = texto[posicion_inicio:].strip()
 
-    # Filtro para cortar borradores en inglés al final
     patrones_corte_final = [
-        r"\n\s*Wait\b", r"\n\s*Check\b", r"\n\s*Self-Correction", 
-        r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint"
+        r"\n\s*Wait\b", r"\n\s*Check\b", r"\n\s*Self-Correction",
+        r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint",
+        r"\n\s*Evaluation:", r"\n\s*Liquidity Analysis:", r"\n\s*Check Constraints"
     ]
 
     for patron in patrones_corte_final:
@@ -79,7 +75,21 @@ def sanitizar_texto_cfo(texto, nombre_estudiante="Estudiante"):
         if corte:
             texto = texto[:corte.start()].strip()
 
-    return texto
+    lineas = texto.split("\n")
+    lineas_limpias = []
+    palabras_basura_ingles = [
+        "role:", "constraint", "case a:", "case b:", "case c:", "data:",
+        "required content:", "language:", "greeting:", "evaluation:",
+        "liquidity analysis:", "socratic questions:", "self-correction",
+        "drafting", "acid test calculation", "check constraints", "wait,"
+    ]
+
+    for l in lineas:
+        l_lower = l.strip().lower()
+        if not any(b in l_lower for b in palabras_basura_ingles):
+            lineas_limpias.append(l)
+
+    return "\n".join(lineas_limpias).strip()
    
 # ==========================================
 #  4.INICIALIZACIÓN DEL ESTADO DE SESIÓN
@@ -160,54 +170,6 @@ if "messages" not in st.session_state:
 
 if "preguntas_examen" not in st.session_state:
     st.session_state.preguntas_examen = None
-
-# ==========================================
-#  FUNCIÓN DE LIMPIEZA DE METADATOS Y DRAFTS
-# ==========================================
-import re
-import google.generativeai as genai
-
-def sanitizar_texto_cfo(texto):
-    """
-    Extrae ÚNICAMENTE el cuerpo de la respuesta en español dirigido al estudiante.
-    Corta de forma limpia cualquier borrador o razonamiento en inglés (arriba o abajo).
-    """
-    if not texto:
-        return ""
-
-    # 1. CORTE SUPERIOR: Buscar el inicio real del saludo en español
-    patron_inicio = re.search(r'\b(Estimado|Hola|Bienvenido|Entiendo|Respecto|Sobre|Como CFO)\b', texto, re.IGNORECASE)
-    if patron_inicio:
-        texto = texto[patron_inicio.start():].strip()
-
-    # 2. CORTE INFERIOR: Eliminar autoevaluaciones en inglés que el modelo añade al final
-    patrones_corte_final = [
-        r"\n\s*Wait\b", r"\n\s*Check\b", r"\n\s*Self-Correction", 
-        r"\n\s*Final Polish", r"\n\s*Role:", r"\n\s*Constraint", 
-        r"\n\s*Evaluation:", r"\n\s*Liquidity Analysis:", r"\n\s*Check Constraints"
-    ]
-
-    for patron in patrones_corte_final:
-        corte = re.search(patron, texto, re.IGNORECASE)
-        if corte:
-            texto = texto[:corte.start()].strip()
-
-    # 3. FILTRADO SECUNDARIO LÍNEA POR LÍNEA
-    lineas = texto.split("\n")
-    lineas_limpias = []
-    palabras_basura_ingles = [
-        "role:", "constraint", "case a:", "case b:", "case c:", "data:",
-        "required content:", "language:", "greeting:", "evaluation:",
-        "liquidity analysis:", "socratic questions:", "self-correction",
-        "drafting", "acid test calculation", "check constraints", "wait,"
-    ]
-
-    for l in lineas:
-        l_lower = l.strip().lower()
-        if not any(b in l_lower for b in palabras_basura_ingles):
-            lineas_limpias.append(l)
-
-    return "\n".join(lineas_limpias).strip()
 
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
