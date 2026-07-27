@@ -257,40 +257,38 @@ def llamar_gemini_api(historial_mensajes, caso_info, nombre_estudiante="Estudian
 
     ultimo_error = None
 
-    for mod in modelos_candidatos:
-        try:
-            model = genai.GenerativeModel(
-                model_name=mod,
-                system_instruction=system_instruction
-            )
+   for mod in modelos_candidatos:
+    try:
+        model = genai.GenerativeModel(
+            model_name=mod,
+            system_instruction=system_instruction
+        )
 
-            response = model.generate_content(
-                contents,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,
-                    max_output_tokens=1200
-                )
+        response = model.generate_content(
+            contents,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=1200
             )
+        )
 
-            if response and response.text:
-                texto_limpio = sanitizar_texto_cfo(
-                    response.text,
-                    nombre_estudiante
-                )
-                if texto_limpio:
-                    return texto_limpio
+        if response and response.text:
+            texto_limpio = sanitizar_texto_cfo(
+                response.text,
+                nombre_estudiante
+            )
+            if texto_limpio:
+                return texto_limpio
 
     except Exception as e:
-        import traceback
-
         print("=" * 80)
         print(f"MODELO: {mod}")
-        print(traceback.format_exc())
+        print(e)
         print("=" * 80)
 
         ultimo_error = f"[{mod}]: {e}"
 
-    raise Exception(f"Detalle técnico del error: {ultimo_error}")
+raise Exception(f"Detalle técnico del error: {ultimo_error}")
 
 # ==========================================
 #     PANEL LATERAL
