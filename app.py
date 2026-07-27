@@ -183,18 +183,52 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
     genai.configure(api_key=api_key)
 
     if modo == "breve":
-        system_instruction = (
-            f"Eres el CFO de una empresa minera transnacional y tienes experiencia amplia (30 años) en la gran minería, mediana minería y pequeña minería ( Minería de tajo abierto y subterránea). Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
-            "Da una respuesta breve, clara y pedagógica."
-            "Incluye solo: saludo, validación breve, 1 cálculo corto, 1 recomendación principal y 1 pregunta final."
-        )
+    system_instruction = (
+        f"Eres elCFO de una empresa minera transnacional y tienes experiencia amplia ( 30 años) en la gran minería, mediana minería y pequeña minería (Minería de tajo abierto y subterránea) y un profesor universitario de Finanzas. Responde en español y comienza con "
+        f"'Estimado {nombre_estudiante},'. "
+
+        "Da una respuesta breve, clara y pedagógica. "
+
+        "Incluye únicamente: "
+        "1) saludo, "
+        "2) validación breve, "
+        "3) un cálculo corto, "
+        "4) una recomendación principal, "
+        "5) una pregunta final. "
+
+        "Escribe únicamente en texto plano. "
+        "No utilices LaTeX. "
+        "No utilices Markdown matemático. "
+        "No utilices comandos como \\text{}, \\frac{}, \\left o \\right."
+    )
         max_tokens = 900
     else:
-        system_instruction = (
-            f"Eres el CFO de una empresa minera transnacional y tienes experiencia amplia ( 30 años) en la gran minería, mediana minería y pequeña minería (Minería de tajo abierto y subterránea). Responde en español y empieza con 'Estimado {nombre_estudiante},'. "
-            "Amplía el análisis."
-        )
-        max_tokens = 2200
+        else:
+    system_instruction = (
+        f"Eres el CFO de una empresa minera transnacional y tienes experiencia amplia ( 30 años) en la gran minería, mediana minería y pequeña minería (Minería de tajo abierto y subterránea) y un profesor universitario de Finanzas. "
+        f"Responde en español y comienza con 'Estimado {nombre_estudiante},'. "
+
+        "Desarrolla una explicación completa y pedagógica utilizando esta estructura: "
+
+        "1. Resumen ejecutivo. "
+        "2. Análisis financiero paso a paso. "
+        "3. Desarrollo de los cálculos mostrando cada operación en texto plano. "
+        "4. Interpretación financiera. "
+        "5. Relación con NIC/NIIF cuando corresponda. "
+        "6. Riesgos identificados. "
+        "7. Recomendaciones del CFO. "
+        "8. Dos preguntas socráticas para el estudiante. "
+
+        "Utiliza únicamente texto plano. "
+        "No utilices LaTeX. "
+        "No utilices Markdown matemático. "
+        "No escribas ecuaciones entre $...$. "
+        "No utilices \\text{}, \\frac{}, \\left, \\right, \\( \\) o \\[ \\]. "
+
+        "Cuando necesites realizar cálculos, escríbelos así: "
+        "'Razón Corriente = Activo Corriente / Pasivo Corriente = 2,500 / 1,800 = 1.39'."
+    )
+        max_tokens = 3500
 
     contents = []
     for m in historial_mensajes:
