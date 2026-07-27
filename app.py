@@ -174,6 +174,7 @@ if "preguntas_examen" not in st.session_state:
 # ==========================================
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
+
 def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="breve"):
     api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -216,7 +217,6 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante, modo="
     )
 
     return sanitizar_texto_cfo(response.text, nombre_estudiante)
-
 
         except Exception as e:
             ultimo_error = f"[{mod}]: {str(e)}"
@@ -271,44 +271,55 @@ with col_interactiva:
         with chat_container:
             # Mensaje de bienvenida inicial (se muestra en pantalla pero no contamina el historial)
             st.chat_message("assistant").write(f"Hola {nombre_estudiante}. Soy el CFO de la minera. {caso_actual['mensaje_inicial']}")
-            
-            # Historial interactivo
-            for msg in st.session_state.messages:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
+         # Historial interactivo
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
 
-        if user_input := st.chat_input("Escribe tu propuesta al CFO..."):
-            with chat_container:
-                st.chat_message("user").write(user_input)
-                
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            
-            try:
-                with st.spinner("El CFO evalúa tu respuesta..."):
-                    # CAMBIO 1: Enviamos el nombre del estudiante registrado
-                    respuesta_texto = llamar_gemini_api(
-                        st.session_state.messages, 
-                        caso_actual, 
-                        nombre_estudiante
-                    )
-                    
-                with chat_container:
-                    st.chat_message("assistant").write(respuesta_texto)
-                    
-                st.session_state.messages.append({"role": "assistant", "content": respuesta_texto})
-        if st.button("Ampliar explicación"):
-            respuesta_larga = llamar_gemini_api(
+if user_input := st.chat_input("Escribe tu propuesta al CFO..."):
+    with chat_container:
+        st.chat_message("user").write(user_input)
+
+    st.session_state.messages.append({"role": "user", "content": user_input})
+
+    try:
+        with st.spinner("El CFO evalúa tu respuesta..."):
+            respuesta_texto = llamar_gemini_api(
                 st.session_state.messages,
                 caso_actual,
                 nombre_estudiante,
-                modo="amplio"
+                modo="breve"
             )
-            st.chat_message("assistant").write(respuesta_larga)
+
+        with chat_container:
+            st.chat_message("assistant").write(respuesta_texto)
+
+        st.session_state.messages.append({"role": "assistant", "content": respuesta_texto})
+        st.session_state.ultima_respuesta_breve = respuesta_texto
+
+    except Exception as e:
+        st.error(f"Error en la interacción: {e}")
+
+if st.session_state.get("ultima_respuesta_breve"):
+    if st.button("Ampliar explicación", use_container_width=True):
+        try:
+            with st.spinner("El CFO amplía el análisis..."):
+                respuesta_larga = llamar_gemini_api(
+                    st.session_state.messages,
+                    caso_actual,
+                    nombre_estudiante,
+                    modo="amplio"
+                )
+
+            with chat_container:
+                st.chat_message("assistant").write(respuesta_larga)
+
             st.session_state.messages.append({"role": "assistant", "content": respuesta_larga})
-                       
-            except Exception as e:
-                st.error(f"Error en la interacción: {e}")
-                
+            st.session_state.ultima_respuesta_breve = None
+
+        except Exception as e:
+            st.error(f"Error al ampliar la explicación: {e}")   
+                          
     with tab2:
         st.subheader("Evaluación Escrita a Medida")
         st.write("El CFO generará preguntas de opción múltiple basadas en la discusión realizada.")
