@@ -213,12 +213,12 @@ def sanitizar_texto_cfo(texto):
 #  FUNCIÓN DE CONEXIÓN CON CONTROL DE ERRORES
 # ==========================================
 def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
-    # Conserva tu system_instruction detallado y completo
+    # Se usa caso_actual en lugar de caso_info
     system_instruction = (
         "Eres el CFO Corporativo de una empresa minera y Tutor Académico de Posgrado.\n"
         "TU ÚNICA TAREA es responder al estudiante EN ESPAÑOL. NO generes notas internas ni en inglés.\n\n"
-        f"CASO EVALUADO: {caso_info['titulo']} ({caso_info['entorno']}).\n"
-        f"DATOS CLAVE: Balance ({caso_info['balance_a2']}) | Resultados ({caso_info['resultados_a2']}).\n\n"
+        f"CASO EVALUADO: {caso_actual['titulo']} ({caso_actual['entorno']}).\n"
+        f"DATOS CLAVE: Balance ({caso_actual['balance_a2']}) | Resultados ({caso_actual['resultados_a2']}).\n\n"
         "ESTRUCTURA OBLIGATORIA DE TU RESPUESTA:\n"
         f"1. Inicia OBLIGATORIAMENTE con el saludo exacto: 'Estimado {nombre_estudiante},'\n"
         "2. Valida sus aciertos en liquidez y operaciones.\n"
