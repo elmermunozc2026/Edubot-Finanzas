@@ -238,8 +238,10 @@ def llamar_gemini_api(historial_mensajes, caso_actual, nombre_estudiante):
                 "parts": [{"text": contenido.strip()}]
             })
 
-    # Lista directa de modelos estables de alta velocidad en la API pagada
+    # Nombres con ruta completa requerida por la SDK para la versión de producción
     modelos_candidatos = [
+        "models/gemini-1.5-flash",
+        "models/gemini-1.5-pro",
         "gemini-1.5-flash",
         "gemini-1.5-pro"
     ]
