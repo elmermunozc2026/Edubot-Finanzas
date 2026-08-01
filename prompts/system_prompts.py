@@ -56,7 +56,7 @@ def _get_sector_context(sector: str, lang: str = "es") -> str:
 CONTEXTO SECTORIAL: Minería y Energía — Perú
 - Empresas representativas: Antamina, Cerro Verde, Southern Copper, Buenaventura, Volcan
 - Commodities clave: Cobre, Oro, Plata, Zinc, Plomo, Hierro
-- KPIs específicos: AISC (All-In Sustaining Cost), Cash Cost, Ley de mineral, Reservas probadas
+- KPIs específicos: AISC (All-In Sustaining Cost), Cash Cost, Ley de mineral, Reservas probadas, Ley de Corte
 - Marco regulatorio: MINEM, OSINERGMIN, OEFA, SUNAT, SMV
 - Normas contables: NIIF completas, NIC 16, NIIF 6 (Exploración)
 - Riesgos clave: Precio de commodities, conflictos sociales, tipo de cambio USD/PEN, regulación ambiental
