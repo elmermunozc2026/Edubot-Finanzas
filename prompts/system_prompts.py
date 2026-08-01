@@ -66,7 +66,7 @@ CONTEXTO SECTORIAL: Minería y Energía — Perú
 SECTOR CONTEXT: Mining & Energy — Peru
 - Representative companies: Antamina, Cerro Verde, Southern Copper, Buenaventura, Volcan
 - Key commodities: Copper, Gold, Silver, Zinc, Lead, Iron
-- Specific KPIs: AISC (All-In Sustaining Cost), Cash Cost, Ore grade, Proven reserves
+- Specific KPIs: AISC (All-In Sustaining Cost), Cash Cost, Ore grade, Proven reserves, Cut-off
 - Regulatory framework: MINEM, OSINERGMIN, OEFA, SUNAT, SMV
 - Accounting standards: Full IFRS, IAS 16, IFRS 6 (Exploration)
 - Key risks: Commodity prices, social conflicts, USD/PEN exchange rate, environmental regulation
