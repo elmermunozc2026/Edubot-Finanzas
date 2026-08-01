@@ -1,4 +1,0 @@
-streamlit
-requests
-pandas
-google-generativeai>=0.8.4
