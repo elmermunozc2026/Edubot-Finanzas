@@ -56,7 +56,13 @@ def _get_sector_context(sector: str, lang: str = "es") -> str:
 CONTEXTO SECTORIAL: Minería y Energía — Perú
 - Empresas representativas: Antamina, Cerro Verde, Southern Copper, Buenaventura, Volcan
 - Commodities clave: Cobre, Oro, Plata, Zinc, Plomo, Hierro
-- KPIs específicos: AISC (All-In Sustaining Cost), Cash Cost, Ley de mineral, Reservas probadas, Ley de Corte
+-  KPIs específicos y Ratios:
+  * Costos y Gestión: AISC (All-In Sustaining Cost), Cash Cost (C1), Costo por Tonelada Movida, Margen EBITDA Operativo, ROCE, Prueba Ácida Ex-Inventarios
+  * Operación Mina: Stripping Ratio (Descapote), Dilución de Minado, Disponibilidad Mecánica, Utilización Efectiva, Factor de Carga de Explosivos
+  * Planta y Metalurgia: Ratio de Concentración, Recuperación Metalúrgica, Ley de Cabeza, Consumo de Reactivos y Bolas
+  * Fundición y Refinería: Eficiencia de Fusión (Throughput), Eficiencia de Corriente, Pureza del Cátodo, Ciclo de Cátodos
+  * Almacén y Embarque: Rotación de Inventarios de Repuestos, Humedad del Concentrado, Mermas de Embarque
+  * Seguridad: Índice de Frecuencia y Severidad de Accidentes
 - Marco regulatorio: MINEM, OSINERGMIN, OEFA, SUNAT, SMV
 - Normas contables: NIIF completas, NIC 16, NIIF 6 (Exploración)
 - Riesgos clave: Precio de commodities, conflictos sociales, tipo de cambio USD/PEN, regulación ambiental
@@ -66,7 +72,13 @@ CONTEXTO SECTORIAL: Minería y Energía — Perú
 SECTOR CONTEXT: Mining & Energy — Peru
 - Representative companies: Antamina, Cerro Verde, Southern Copper, Buenaventura, Volcan
 - Key commodities: Copper, Gold, Silver, Zinc, Lead, Iron
-- Specific KPIs: AISC (All-In Sustaining Cost), Cash Cost, Ore grade, Proven reserves, Cut-off
+- Specific KPIs & Ratios:
+  * Costs & Management: AISC (All-In Sustaining Cost), Cash Cost (C1), Cost per Metric Ton Moved, Operating EBITDA Margin, ROCE, Quick Ratio Ex-Inventories
+  * Mine Operations: Stripping Ratio, Mining Dilution, Mechanical Availability, Effective Utilization, Explosive Powder Factor
+  * Plant & Metallurgy: Concentration Ratio, Metallurgical Recovery, Ore Grade (Head Grade), Reagent & Ball Consumption Ratio
+  * Smelting & Refining: Smelting Efficiency (Throughput), Current Efficiency, Cathode Purity, Cathode Cycle
+  * Warehouse & Shipping: Spare Parts Inventory Turnover, Concentrate Moisture, Shipping Loss Ratio
+  * Safety: Accident Frequency & Severity Indexes
 - Regulatory framework: MINEM, OSINERGMIN, OEFA, SUNAT, SMV
 - Accounting standards: Full IFRS, IAS 16, IFRS 6 (Exploration)
 - Key risks: Commodity prices, social conflicts, USD/PEN exchange rate, environmental regulation
