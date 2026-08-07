@@ -385,7 +385,7 @@ class CFOOrchestrator:
         api_key: str,
         mode: str = "tutor",
         sector: str = "mining",
-        model_name: str = "models/gemini-3.6-flash",
+        model_name: str = "gemini-2.0-flash",
         lang: str = "es",                        # ← NUEVO: parámetro de idioma
     ):
         genai.configure(api_key=api_key)
@@ -400,7 +400,7 @@ class CFOOrchestrator:
         )
         self.chat_sessions = {}
 
-    def update_language(self, lang: str, api_key: str, model_name: str = "models/gemini-3.6-flash"):
+    def update_language(self, lang: str, api_key: str, model_name: str = "gemini-2.0-flash"):
         """
         Actualiza el idioma del agente recreando el modelo con el nuevo system prompt.
         Llama a este método cuando el usuario cambia el idioma en la UI.

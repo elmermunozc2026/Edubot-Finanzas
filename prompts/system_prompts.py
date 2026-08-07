@@ -56,7 +56,7 @@ def _get_sector_context(sector: str, lang: str = "es") -> str:
 CONTEXTO SECTORIAL: Minería y Energía — Perú
 - Empresas representativas: Antamina, Cerro Verde, Southern Copper, Buenaventura, Volcan
 - Commodities clave: Cobre, Oro, Plata, Zinc, Plomo, Hierro
--  KPIs específicos y Ratios:
+- KPIs específicos y Ratios:
   * Costos y Gestión: AISC (All-In Sustaining Cost), Cash Cost (C1), Costo por Tonelada Movida, Margen EBITDA Operativo, ROCE, Prueba Ácida Ex-Inventarios
   * Operación Mina: Stripping Ratio (Descapote), Dilución de Minado, Disponibilidad Mecánica, Utilización Efectiva, Factor de Carga de Explosivos
   * Planta y Metalurgia: Ratio de Concentración, Recuperación Metalúrgica, Ley de Cabeza, Consumo de Reactivos y Bolas

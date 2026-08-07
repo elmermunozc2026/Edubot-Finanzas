@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import streamlit as st
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ROLES DEL SISTEMA
 # ─────────────────────────────────────────────────────────────────────────────

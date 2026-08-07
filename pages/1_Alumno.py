@@ -263,4 +263,3 @@ with tab_temas:
         with st.expander(categoria):
             for subtema in subtemas:
                 st.markdown(f"  ✓ {subtema}")
-            
