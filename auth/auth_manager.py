@@ -1,8 +1,7 @@
 """
-CFO Agent IA - Sistema de Autenticación y Gestión de Usuarios
-Módulo: Login, Roles, Gestión de usuarios desde la app
+CFO Agent IA - Sistema de Autenticación con Google Firestore
+Módulo: Login, Roles, Gestión de usuarios persistente en la nube
 """
-import sqlite3
 import hashlib
 import secrets
 import string
@@ -16,158 +15,192 @@ import streamlit as st
 # ─────────────────────────────────────────────────────────────────────────────
 
 ROLES = {
-    "admin":    {"label_es": "Administrador", "label_en": "Administrator", "page": "app",             "icon": "⚙️"},
-    "alumno":   {"label_es": "Alumno",         "label_en": "Student",       "page": "1_Alumno",        "icon": "🎓"},
-    "profesor": {"label_es": "Profesor",       "label_en": "Teacher",       "page": "2_Profesor",      "icon": "👨‍🏫"},
-    "cfo":      {"label_es": "CFO / Gerente",  "label_en": "CFO / Manager", "page": "3_CFO_Asistente", "icon": "💼"},
+    "admin":    {"label_es": "Administrador", "label_en": "Administrator", "page": "pages/0_Admin.py",            "icon": "⚙️"},
+    "alumno":   {"label_es": "Alumno",         "label_en": "Student",       "page": "pages/1_Alumno.py",           "icon": "🎓"},
+    "profesor": {"label_es": "Profesor",       "label_en": "Teacher",       "page": "pages/2_Profesor.py",         "icon": "👨‍🏫"},
+    "cfo":      {"label_es": "CFO / Gerente",  "label_en": "CFO / Manager", "page": "pages/3_CFO_Asistente.py",   "icon": "💼"},
 }
 
 SECTORS = ["mining", "banking", "retail", "health", "government"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BASE DE DATOS DE USUARIOS
+# CONEXIÓN A FIRESTORE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_firestore_client():
+    """Obtiene cliente de Firestore usando credenciales de Streamlit Secrets."""
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, firestore
+
+        if not firebase_admin._apps:
+            firebase_config = dict(st.secrets["firebase"])
+            # Corregir saltos de línea en private_key
+            if "private_key" in firebase_config:
+                firebase_config["private_key"] = firebase_config["private_key"].replace("\\n", "\n")
+            cred = credentials.Certificate(firebase_config)
+            firebase_admin.initialize_app(cred)
+
+        return firestore.client()
+    except Exception as e:
+        st.error(f"Error conectando a Firestore: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLASE PRINCIPAL DE AUTENTICACIÓN
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AuthManager:
-    """Gestiona autenticación, sesiones y administración de usuarios."""
+    """Gestiona autenticación, sesiones y administración de usuarios con Firestore."""
 
-    def __init__(self, db_path: str = "cfo_agent_users.db"):
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self._create_tables()
-        self._create_default_admin()
+    def __init__(self):
+        self.db = _get_firestore_client()
+        self._ensure_admin_exists()
 
-    def _create_tables(self):
-        self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                email       TEXT    UNIQUE NOT NULL,
-                name        TEXT    NOT NULL,
-                password    TEXT    NOT NULL,
-                role        TEXT    NOT NULL DEFAULT 'alumno',
-                sector      TEXT    NOT NULL DEFAULT 'mining',
-                active      INTEGER NOT NULL DEFAULT 1,
-                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login  TIMESTAMP,
-                created_by  TEXT    DEFAULT 'system'
-            );
-
-            CREATE TABLE IF NOT EXISTS sessions (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id     INTEGER NOT NULL,
-                token       TEXT    UNIQUE NOT NULL,
-                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at  TIMESTAMP NOT NULL,
-                active      INTEGER NOT NULL DEFAULT 1,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS login_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                email       TEXT    NOT NULL,
-                success     INTEGER NOT NULL,
-                ip_hint     TEXT,
-                timestamp   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        self.conn.commit()
-
-    def _create_default_admin(self):
-        """Crea el usuario admin por defecto si no existe."""
-        existing = self.conn.execute(
-            "SELECT id FROM users WHERE role = 'admin' LIMIT 1"
-        ).fetchone()
-        if not existing:
-            self.conn.execute("""
-                INSERT INTO users (email, name, password, role, sector, created_by)
-                VALUES (?, ?, ?, 'admin', 'mining', 'system')
-            """, ("admin@cfoagent.ia", "Administrador CFO", self._hash_password("Admin2026!")))
-            self.conn.commit()
+    def _ensure_admin_exists(self):
+        """Crea el usuario admin por defecto si no existe en Firestore."""
+        if not self.db:
+            return
+        try:
+            admin_ref = self.db.collection("users").where("role", "==", "admin").limit(1).get()
+            if not list(admin_ref):
+                self.db.collection("users").document("admin_default").set({
+                    "email":      "admin@cfoagent.ia",
+                    "name":       "Administrador CFO",
+                    "password":   self._hash_password("Admin2026!"),
+                    "role":       "admin",
+                    "sector":     "mining",
+                    "active":     True,
+                    "created_at": datetime.now().isoformat(),
+                    "last_login": None,
+                    "created_by": "system",
+                })
+        except Exception as e:
+            print(f"Error _ensure_admin_exists: {e}")
 
     # ── UTILIDADES ────────────────────────────────────────────────────────────
 
     def _hash_password(self, password: str) -> str:
-        """Hash SHA-256 con salt fijo del sistema."""
         salt = "CFOAgentIA_2026_SecureS@lt"
         return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
 
     def _generate_token(self) -> str:
-        """Genera token de sesión seguro."""
         return secrets.token_urlsafe(32)
 
     def _generate_temp_password(self, length: int = 10) -> str:
-        """Genera contraseña temporal segura."""
         chars = string.ascii_letters + string.digits + "!@#$"
         return ''.join(secrets.choice(chars) for _ in range(length))
 
     # ── AUTENTICACIÓN ─────────────────────────────────────────────────────────
 
     def login(self, email: str, password: str) -> dict:
-        """
-        Autentica al usuario y retorna resultado con token de sesión.
-        Returns: {"success": bool, "user": dict|None, "message": str, "token": str|None}
-        """
+        """Autentica al usuario contra Firestore."""
+        if not self.db:
+            return {"success": False, "user": None, "message": "Error de conexión a la base de datos.", "token": None}
+
         email = email.strip().lower()
-        user = self.conn.execute(
-            "SELECT * FROM users WHERE email = ? AND active = 1", (email,)
-        ).fetchone()
+        try:
+            users = self.db.collection("users").where("email", "==", email).where("active", "==", True).limit(1).get()
+            user_list = list(users)
 
-        if not user:
-            self._log_login(email, False)
-            return {"success": False, "user": None, "message": "Usuario no encontrado o inactivo.", "token": None}
+            if not user_list:
+                self._log_login(email, False)
+                return {"success": False, "user": None, "message": "Usuario no encontrado o inactivo.", "token": None}
 
-        if user["password"] != self._hash_password(password):
-            self._log_login(email, False)
-            return {"success": False, "user": None, "message": "Contraseña incorrecta.", "token": None}
+            user_doc = user_list[0]
+            user_data = user_doc.to_dict()
+            user_data["id"] = user_doc.id
 
-        # Crear token de sesión (expira en 8 horas)
-        token = self._generate_token()
-        expires = datetime.now() + timedelta(hours=8)
-        self.conn.execute("""
-            INSERT INTO sessions (user_id, token, expires_at)
-            VALUES (?, ?, ?)
-        """, (user["id"], token, expires.isoformat()))
-        self.conn.execute(
-            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],)
-        )
-        self.conn.commit()
-        self._log_login(email, True)
+            if user_data.get("password") != self._hash_password(password):
+                self._log_login(email, False)
+                return {"success": False, "user": None, "message": "Contraseña incorrecta.", "token": None}
 
-        return {
-            "success": True,
-            "user": dict(user),
-            "message": f"Bienvenido/a, {user['name']}",
-            "token": token,
-        }
+            # Crear token de sesión
+            token = self._generate_token()
+            expires = datetime.now() + timedelta(hours=8)
+
+            self.db.collection("sessions").document(token).set({
+                "user_id":    user_doc.id,
+                "email":      email,
+                "created_at": datetime.now().isoformat(),
+                "expires_at": expires.isoformat(),
+                "active":     True,
+            })
+
+            # Actualizar último login
+            self.db.collection("users").document(user_doc.id).update({
+                "last_login": datetime.now().isoformat()
+            })
+
+            self._log_login(email, True)
+
+            return {
+                "success": True,
+                "user":    user_data,
+                "message": f"Bienvenido/a, {user_data['name']}",
+                "token":   token,
+            }
+        except Exception as e:
+            return {"success": False, "user": None, "message": f"Error de autenticación: {e}", "token": None}
 
     def logout(self, token: str) -> bool:
-        """Invalida el token de sesión."""
-        self.conn.execute(
-            "UPDATE sessions SET active = 0 WHERE token = ?", (token,)
-        )
-        self.conn.commit()
-        return True
+        """Invalida el token de sesión en Firestore."""
+        if not self.db or not token:
+            return False
+        try:
+            self.db.collection("sessions").document(token).update({"active": False})
+            return True
+        except Exception:
+            return False
 
     def validate_session(self, token: str) -> Optional[dict]:
         """Valida token y retorna usuario si la sesión es válida."""
-        if not token:
+        if not self.db or not token:
             return None
-        row = self.conn.execute("""
-            SELECT u.* FROM users u
-            JOIN sessions s ON s.user_id = u.id
-            WHERE s.token = ? AND s.active = 1
-              AND s.expires_at > CURRENT_TIMESTAMP
-              AND u.active = 1
-        """, (token,)).fetchone()
-        return dict(row) if row else None
+        try:
+            session_doc = self.db.collection("sessions").document(token).get()
+            if not session_doc.exists:
+                return None
+
+            session = session_doc.to_dict()
+            if not session.get("active"):
+                return None
+
+            # Verificar expiración
+            expires_at = datetime.fromisoformat(session["expires_at"])
+            if datetime.now() > expires_at:
+                self.db.collection("sessions").document(token).update({"active": False})
+                return None
+
+            # Obtener usuario
+            user_doc = self.db.collection("users").document(session["user_id"]).get()
+            if not user_doc.exists:
+                return None
+
+            user_data = user_doc.to_dict()
+            user_data["id"] = user_doc.id
+
+            if not user_data.get("active"):
+                return None
+
+            return user_data
+        except Exception:
+            return None
 
     def _log_login(self, email: str, success: bool):
-        self.conn.execute(
-            "INSERT INTO login_log (email, success) VALUES (?, ?)", (email, int(success))
-        )
-        self.conn.commit()
+        """Registra intento de login en Firestore."""
+        if not self.db:
+            return
+        try:
+            self.db.collection("login_log").add({
+                "email":     email,
+                "success":   success,
+                "timestamp": datetime.now().isoformat(),
+            })
+        except Exception:
+            pass
 
     # ── GESTIÓN DE USUARIOS ───────────────────────────────────────────────────
 
@@ -180,114 +213,168 @@ class AuthManager:
         password: str = None,
         created_by: str = "admin",
     ) -> dict:
-        """Crea un nuevo usuario. Si no se provee password, genera uno temporal."""
+        """Crea un nuevo usuario en Firestore."""
+        if not self.db:
+            return {"success": False, "message": "Error de conexión."}
+
         email = email.strip().lower()
-
-        # Verificar si ya existe
-        existing = self.conn.execute(
-            "SELECT id FROM users WHERE email = ?", (email,)
-        ).fetchone()
-        if existing:
-            return {"success": False, "message": f"El email {email} ya está registrado."}
-
-        temp_password = password or self._generate_temp_password()
         try:
-            self.conn.execute("""
-                INSERT INTO users (email, name, password, role, sector, created_by)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (email, name, self._hash_password(temp_password), role, sector, created_by))
-            self.conn.commit()
+            # Verificar si ya existe
+            existing = self.db.collection("users").where("email", "==", email).limit(1).get()
+            if list(existing):
+                return {"success": False, "message": f"El email {email} ya está registrado."}
+
+            temp_password = password or self._generate_temp_password()
+            doc_ref = self.db.collection("users").add({
+                "email":      email,
+                "name":       name,
+                "password":   self._hash_password(temp_password),
+                "role":       role,
+                "sector":     sector,
+                "active":     True,
+                "created_at": datetime.now().isoformat(),
+                "last_login": None,
+                "created_by": created_by,
+            })
+
             return {
-                "success": True,
-                "message": f"Usuario {name} creado exitosamente.",
+                "success":       True,
+                "message":       f"Usuario {name} creado exitosamente.",
                 "temp_password": temp_password,
-                "email": email,
+                "email":         email,
             }
         except Exception as e:
             return {"success": False, "message": f"Error al crear usuario: {e}"}
 
-    def update_user(self, user_id: int, **kwargs) -> dict:
-        """Actualiza campos del usuario (name, role, sector, active)."""
+    def update_user(self, user_id: str, **kwargs) -> dict:
+        """Actualiza campos del usuario en Firestore."""
+        if not self.db:
+            return {"success": False, "message": "Error de conexión."}
         allowed = {"name", "role", "sector", "active"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return {"success": False, "message": "No hay campos válidos para actualizar."}
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [user_id]
-        self.conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
-        self.conn.commit()
-        return {"success": True, "message": "Usuario actualizado."}
+        try:
+            self.db.collection("users").document(user_id).update(updates)
+            return {"success": True, "message": "Usuario actualizado."}
+        except Exception as e:
+            return {"success": False, "message": f"Error: {e}"}
 
-    def reset_password(self, user_id: int, new_password: str = None) -> dict:
+    def reset_password(self, user_id: str, new_password: str = None) -> dict:
         """Resetea la contraseña del usuario."""
+        if not self.db:
+            return {"success": False, "message": "Error de conexión."}
         temp = new_password or self._generate_temp_password()
-        self.conn.execute(
-            "UPDATE users SET password = ? WHERE id = ?",
-            (self._hash_password(temp), user_id)
-        )
-        self.conn.commit()
-        return {"success": True, "new_password": temp, "message": "Contraseña reseteada."}
+        try:
+            self.db.collection("users").document(user_id).update({
+                "password": self._hash_password(temp)
+            })
+            return {"success": True, "new_password": temp, "message": "Contraseña reseteada."}
+        except Exception as e:
+            return {"success": False, "message": f"Error: {e}"}
 
-    def change_password(self, user_id: int, old_password: str, new_password: str) -> dict:
+    def change_password(self, user_id: str, old_password: str, new_password: str) -> dict:
         """Permite al usuario cambiar su propia contraseña."""
-        user = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not user:
-            return {"success": False, "message": "Usuario no encontrado."}
-        if user["password"] != self._hash_password(old_password):
-            return {"success": False, "message": "Contraseña actual incorrecta."}
-        if len(new_password) < 8:
-            return {"success": False, "message": "La nueva contraseña debe tener al menos 8 caracteres."}
-        self.conn.execute(
-            "UPDATE users SET password = ? WHERE id = ?",
-            (self._hash_password(new_password), user_id)
-        )
-        self.conn.commit()
-        return {"success": True, "message": "Contraseña actualizada exitosamente."}
+        if not self.db:
+            return {"success": False, "message": "Error de conexión."}
+        try:
+            user_doc = self.db.collection("users").document(user_id).get()
+            if not user_doc.exists:
+                return {"success": False, "message": "Usuario no encontrado."}
+            user_data = user_doc.to_dict()
+            if user_data.get("password") != self._hash_password(old_password):
+                return {"success": False, "message": "Contraseña actual incorrecta."}
+            if len(new_password) < 8:
+                return {"success": False, "message": "La nueva contraseña debe tener al menos 8 caracteres."}
+            self.db.collection("users").document(user_id).update({
+                "password": self._hash_password(new_password)
+            })
+            return {"success": True, "message": "Contraseña actualizada exitosamente."}
+        except Exception as e:
+            return {"success": False, "message": f"Error: {e}"}
 
-    def deactivate_user(self, user_id: int) -> dict:
-        """Desactiva un usuario (no lo elimina)."""
-        self.conn.execute("UPDATE users SET active = 0 WHERE id = ?", (user_id,))
-        self.conn.execute(
-            "UPDATE sessions SET active = 0 WHERE user_id = ?", (user_id,)
-        )
-        self.conn.commit()
-        return {"success": True, "message": "Usuario desactivado."}
+    def deactivate_user(self, user_id: str) -> dict:
+        """Desactiva un usuario."""
+        if not self.db:
+            return {"success": False, "message": "Error de conexión."}
+        try:
+            self.db.collection("users").document(user_id).update({"active": False})
+            # Invalidar sesiones activas
+            sessions = self.db.collection("sessions").where("user_id", "==", user_id).where("active", "==", True).get()
+            for s in sessions:
+                s.reference.update({"active": False})
+            return {"success": True, "message": "Usuario desactivado."}
+        except Exception as e:
+            return {"success": False, "message": f"Error: {e}"}
 
     def get_all_users(self) -> list:
         """Retorna todos los usuarios para el panel de administración."""
-        rows = self.conn.execute("""
-            SELECT id, email, name, role, sector, active, created_at, last_login, created_by
-            FROM users ORDER BY role, name
-        """).fetchall()
-        return [dict(r) for r in rows]
+        if not self.db:
+            return []
+        try:
+            users = self.db.collection("users").order_by("role").get()
+            result = []
+            for u in users:
+                data = u.to_dict()
+                data["id"] = u.id
+                result.append(data)
+            return result
+        except Exception:
+            return []
 
-    def get_user_by_id(self, user_id: int) -> Optional[dict]:
-        row = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-        return dict(row) if row else None
+    def get_user_by_id(self, user_id: str) -> Optional[dict]:
+        """Retorna un usuario por su ID."""
+        if not self.db:
+            return None
+        try:
+            doc = self.db.collection("users").document(user_id).get()
+            if doc.exists:
+                data = doc.to_dict()
+                data["id"] = doc.id
+                return data
+            return None
+        except Exception:
+            return None
 
     def get_login_stats(self) -> dict:
         """Estadísticas de acceso para el admin."""
-        total = self.conn.execute("SELECT COUNT(*) as c FROM users WHERE active = 1").fetchone()["c"]
-        by_role = self.conn.execute("""
-            SELECT role, COUNT(*) as c FROM users WHERE active = 1 GROUP BY role
-        """).fetchall()
-        recent_logins = self.conn.execute("""
-            SELECT u.name, u.role, u.last_login FROM users u
-            WHERE u.last_login IS NOT NULL ORDER BY u.last_login DESC LIMIT 10
-        """).fetchall()
-        failed_today = self.conn.execute("""
-            SELECT COUNT(*) as c FROM login_log
-            WHERE success = 0 AND date(timestamp) = date('now')
-        """).fetchone()["c"]
-        return {
-            "total_active_users": total,
-            "by_role": {r["role"]: r["c"] for r in by_role},
-            "recent_logins": [dict(r) for r in recent_logins],
-            "failed_logins_today": failed_today,
-        }
+        if not self.db:
+            return {"total_active_users": 0, "by_role": {}, "recent_logins": [], "failed_logins_today": 0}
+        try:
+            users = self.db.collection("users").where("active", "==", True).get()
+            total = 0
+            by_role = {}
+            recent = []
+            for u in users:
+                data = u.to_dict()
+                total += 1
+                role = data.get("role", "alumno")
+                by_role[role] = by_role.get(role, 0) + 1
+                if data.get("last_login"):
+                    recent.append({
+                        "name":       data.get("name", ""),
+                        "role":       role,
+                        "last_login": data.get("last_login", ""),
+                    })
+
+            recent.sort(key=lambda x: x["last_login"], reverse=True)
+
+            # Intentos fallidos hoy
+            today = datetime.now().strftime("%Y-%m-%d")
+            failed_logs = self.db.collection("login_log").where("success", "==", False).get()
+            failed_today = sum(1 for f in failed_logs if f.to_dict().get("timestamp", "").startswith(today))
+
+            return {
+                "total_active_users":  total,
+                "by_role":             by_role,
+                "recent_logins":       recent[:10],
+                "failed_logins_today": failed_today,
+            }
+        except Exception:
+            return {"total_active_users": 0, "by_role": {}, "recent_logins": [], "failed_logins_today": 0}
 
     def close(self):
-        self.conn.close()
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -311,7 +398,6 @@ def is_authenticated() -> bool:
     if user:
         st.session_state["current_user"] = user
         return True
-    # Token expirado o inválido
     st.session_state.pop("auth_token", None)
     st.session_state.pop("current_user", None)
     return False
@@ -323,11 +409,7 @@ def get_current_user() -> Optional[dict]:
 
 
 def require_auth(allowed_roles: list = None):
-    """
-    Decorator/guard para páginas protegidas.
-    Si no está autenticado → redirige al login.
-    Si no tiene el rol → muestra error de acceso.
-    """
+    """Guard para páginas protegidas."""
     if not is_authenticated():
         st.switch_page("login.py")
         st.stop()
@@ -346,7 +428,7 @@ def logout_user():
     if token:
         auth = init_auth()
         auth.logout(token)
-    for key in ["auth_token", "current_user", "orchestrator_alumno",
-                "orchestrator_profesor", "orchestrator_cfo",
+    for key in ["auth_token", "current_user", "auth_manager",
+                "orchestrator_alumno", "orchestrator_profesor", "orchestrator_cfo",
                 "messages_alumno", "messages_profesor", "messages_cfo"]:
         st.session_state.pop(key, None)

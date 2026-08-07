@@ -1,93 +1,86 @@
 """
-CFO Agent IA - Base de Datos de Memoria Persistente
-Módulo: SQLite para historial de alumnos y sesiones CFO
+CFO Agent IA - Base de Datos con Google Firestore
+Módulo: Memoria persistente para alumnos y sesiones CFO en la nube
 """
-import sqlite3
 import json
 from datetime import datetime
 from typing import Optional
+import streamlit as st
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONEXIÓN A FIRESTORE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_firestore_client():
+    """Obtiene cliente de Firestore usando credenciales de Streamlit Secrets."""
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, firestore
+
+        if not firebase_admin._apps:
+            firebase_config = dict(st.secrets["firebase"])
+            if "private_key" in firebase_config:
+                firebase_config["private_key"] = firebase_config["private_key"].replace("\\n", "\n")
+            cred = credentials.Certificate(firebase_config)
+            firebase_admin.initialize_app(cred)
+
+        return firestore.client()
+    except Exception as e:
+        print(f"Error conectando a Firestore: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLASE PRINCIPAL DE MEMORIA
+# ─────────────────────────────────────────────────────────────────────────────
 
 class StudentMemory:
-    """Memoria persistente para alumnos con SQLite."""
+    """Memoria persistente para alumnos con Google Firestore."""
 
-    def __init__(self, db_path: str = "cfo_agent.db"):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self._create_tables()
-
-    def _create_tables(self):
-        self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS students (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                sector TEXT DEFAULT 'mining',
-                profile JSON DEFAULT '{}',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id TEXT NOT NULL,
-                message TEXT NOT NULL,
-                response TEXT NOT NULL,
-                topic TEXT,
-                score REAL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (student_id) REFERENCES students(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS evaluations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id TEXT NOT NULL,
-                topic TEXT NOT NULL,
-                score REAL NOT NULL,
-                max_score REAL DEFAULT 10.0,
-                difficulty TEXT DEFAULT 'intermedio',
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (student_id) REFERENCES students(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS cfo_sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                module TEXT NOT NULL,
-                query TEXT NOT NULL,
-                response TEXT NOT NULL,
-                tools_used JSON DEFAULT '[]',
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        self.conn.commit()
+    def __init__(self):
+        self.db = _get_firestore_client()
 
     # ── ALUMNOS ──────────────────────────────────────────────────────────────
 
     def upsert_student(self, student_id: str, name: str, sector: str = "mining") -> bool:
+        """Crea o actualiza un alumno en Firestore."""
+        if not self.db:
+            return False
         try:
-            self.conn.execute("""
-                INSERT INTO students (id, name, sector)
-                VALUES (?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    last_active = CURRENT_TIMESTAMP
-            """, (student_id, name, sector))
-            self.conn.commit()
+            self.db.collection("students").document(student_id).set({
+                "name":        name,
+                "sector":      sector,
+                "last_active": datetime.now().isoformat(),
+            }, merge=True)
             return True
         except Exception as e:
             print(f"Error upsert_student: {e}")
             return False
 
     def get_student(self, student_id: str) -> Optional[dict]:
-        row = self.conn.execute(
-            "SELECT * FROM students WHERE id = ?", (student_id,)
-        ).fetchone()
-        return dict(row) if row else None
+        """Obtiene un alumno por su ID."""
+        if not self.db:
+            return None
+        try:
+            doc = self.db.collection("students").document(student_id).get()
+            if doc.exists:
+                data = doc.to_dict()
+                data["id"] = doc.id
+                return data
+            return None
+        except Exception:
+            return None
 
     def get_all_students(self) -> list:
-        rows = self.conn.execute(
-            "SELECT * FROM students ORDER BY last_active DESC"
-        ).fetchall()
-        return [dict(r) for r in rows]
+        """Retorna todos los alumnos."""
+        if not self.db:
+            return []
+        try:
+            docs = self.db.collection("students").order_by("last_active", direction="DESCENDING").get()
+            return [{"id": d.id, **d.to_dict()} for d in docs]
+        except Exception:
+            return []
 
     # ── INTERACCIONES ────────────────────────────────────────────────────────
 
@@ -99,16 +92,22 @@ class StudentMemory:
         topic: str = None,
         score: float = None,
     ) -> bool:
+        """Guarda una interacción del alumno en Firestore."""
+        if not self.db:
+            return False
         try:
-            self.conn.execute("""
-                INSERT INTO interactions (student_id, message, response, topic, score)
-                VALUES (?, ?, ?, ?, ?)
-            """, (student_id, message, response, topic, score))
-            self.conn.execute(
-                "UPDATE students SET last_active = CURRENT_TIMESTAMP WHERE id = ?",
-                (student_id,)
-            )
-            self.conn.commit()
+            self.db.collection("interactions").add({
+                "student_id": student_id,
+                "message":    message,
+                "response":   response,
+                "topic":      topic,
+                "score":      score,
+                "timestamp":  datetime.now().isoformat(),
+            })
+            # Actualizar última actividad del alumno
+            self.db.collection("students").document(student_id).set({
+                "last_active": datetime.now().isoformat()
+            }, merge=True)
             return True
         except Exception as e:
             print(f"Error save_interaction: {e}")
@@ -116,36 +115,67 @@ class StudentMemory:
 
     def get_context(self, student_id: str, n: int = 10) -> dict:
         """Recupera contexto del alumno para el agente."""
-        rows = self.conn.execute("""
-            SELECT message, response, topic, score, timestamp
-            FROM interactions
-            WHERE student_id = ?
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (student_id, n)).fetchall()
+        if not self.db:
+            return {
+                "student_id": student_id, "history": [], "evaluations_by_topic": [],
+                "avg_score": 0, "level": "basico", "weak_topics": [], "total_interactions": 0,
+            }
+        try:
+            # Últimas N interacciones
+            interactions = (
+                self.db.collection("interactions")
+                .where("student_id", "==", student_id)
+                .order_by("timestamp", direction="DESCENDING")
+                .limit(n)
+                .get()
+            )
+            history = [d.to_dict() for d in interactions]
 
-        evals = self.conn.execute("""
-            SELECT topic, AVG(score) as avg_score, COUNT(*) as intentos
-            FROM evaluations
-            WHERE student_id = ?
-            GROUP BY topic
-            ORDER BY avg_score ASC
-        """, (student_id,)).fetchall()
+            # Evaluaciones por tema
+            evals = (
+                self.db.collection("evaluations")
+                .where("student_id", "==", student_id)
+                .get()
+            )
+            eval_list = [d.to_dict() for d in evals]
 
-        scores = [r["score"] for r in rows if r["score"] is not None]
-        avg_score = sum(scores) / len(scores) if scores else 0
+            # Calcular promedio por tema
+            topic_scores = {}
+            for e in eval_list:
+                topic = e.get("topic", "general")
+                score = e.get("score", 0)
+                max_score = e.get("max_score", 10)
+                normalized = (score / max(max_score, 1)) * 10
+                if topic not in topic_scores:
+                    topic_scores[topic] = []
+                topic_scores[topic].append(normalized)
 
-        level = "avanzado" if avg_score >= 8 else "intermedio" if avg_score >= 5 else "basico"
+            evals_by_topic = [
+                {"topic": t, "avg_score": sum(s) / len(s), "intentos": len(s)}
+                for t, s in topic_scores.items()
+            ]
 
-        return {
-            "student_id": student_id,
-            "history": [dict(r) for r in rows],
-            "evaluations_by_topic": [dict(e) for e in evals],
-            "avg_score": round(avg_score, 2),
-            "level": level,
-            "weak_topics": [dict(e)["topic"] for e in evals if dict(e)["avg_score"] < 6],
-            "total_interactions": len(rows),
-        }
+            # Promedio general
+            all_scores = [s for scores in topic_scores.values() for s in scores]
+            avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
+            level = "avanzado" if avg_score >= 8 else "intermedio" if avg_score >= 5 else "basico"
+            weak_topics = [t for t, s in topic_scores.items() if sum(s) / len(s) < 6]
+
+            return {
+                "student_id":          student_id,
+                "history":             history,
+                "evaluations_by_topic": evals_by_topic,
+                "avg_score":           round(avg_score, 2),
+                "level":               level,
+                "weak_topics":         weak_topics,
+                "total_interactions":  len(history),
+            }
+        except Exception as e:
+            print(f"Error get_context: {e}")
+            return {
+                "student_id": student_id, "history": [], "evaluations_by_topic": [],
+                "avg_score": 0, "level": "basico", "weak_topics": [], "total_interactions": 0,
+            }
 
     # ── EVALUACIONES ─────────────────────────────────────────────────────────
 
@@ -157,12 +187,18 @@ class StudentMemory:
         max_score: float = 10.0,
         difficulty: str = "intermedio",
     ) -> bool:
+        """Guarda una evaluación del alumno en Firestore."""
+        if not self.db:
+            return False
         try:
-            self.conn.execute("""
-                INSERT INTO evaluations (student_id, topic, score, max_score, difficulty)
-                VALUES (?, ?, ?, ?, ?)
-            """, (student_id, topic, score, max_score, difficulty))
-            self.conn.commit()
+            self.db.collection("evaluations").add({
+                "student_id": student_id,
+                "topic":      topic,
+                "score":      score,
+                "max_score":  max_score,
+                "difficulty": difficulty,
+                "timestamp":  datetime.now().isoformat(),
+            })
             return True
         except Exception as e:
             print(f"Error save_evaluation: {e}")
@@ -170,40 +206,61 @@ class StudentMemory:
 
     def get_class_report(self) -> dict:
         """Genera reporte completo de la clase para el profesor."""
-        students = self.get_all_students()
-        report = []
+        if not self.db:
+            return {
+                "fecha_reporte": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "total_alumnos": 0, "promedio_clase": 0,
+                "alumnos_en_riesgo": [], "alumnos_destacados": [], "ranking": [],
+            }
+        try:
+            students = self.get_all_students()
+            report = []
 
-        for s in students:
-            ctx = self.get_context(s["id"], n=50)
-            evals = self.conn.execute("""
-                SELECT AVG(score/max_score*10) as promedio, COUNT(*) as total_evals
-                FROM evaluations WHERE student_id = ?
-            """, (s["id"],)).fetchone()
+            for s in students:
+                student_id = s["id"]
+                ctx = self.get_context(student_id, n=50)
+                promedio = round(ctx["avg_score"], 1)
+                semaforo = "🟢" if promedio >= 7 else "🟡" if promedio >= 5 else "🔴"
 
-            promedio = round(dict(evals)["promedio"] or 0, 1)
-            semaforo = "🟢" if promedio >= 7 else "🟡" if promedio >= 5 else "🔴"
+                # Total evaluaciones
+                evals = (
+                    self.db.collection("evaluations")
+                    .where("student_id", "==", student_id)
+                    .get()
+                )
+                total_evals = len(list(evals))
 
-            report.append({
-                "alumno": s["name"],
-                "student_id": s["id"],
-                "promedio": promedio,
-                "semaforo": semaforo,
-                "nivel": ctx["level"],
-                "temas_debiles": ctx["weak_topics"],
-                "total_evaluaciones": dict(evals)["total_evals"] or 0,
-                "ultima_actividad": s["last_active"],
-            })
+                report.append({
+                    "alumno":             s.get("name", student_id),
+                    "student_id":         student_id,
+                    "promedio":           promedio,
+                    "semaforo":           semaforo,
+                    "nivel":              ctx["level"],
+                    "temas_debiles":      ctx["weak_topics"],
+                    "total_evaluaciones": total_evals,
+                    "ultima_actividad":   s.get("last_active", ""),
+                })
 
-        report.sort(key=lambda x: x["promedio"], reverse=True)
+            report.sort(key=lambda x: x["promedio"], reverse=True)
+            promedio_clase = round(
+                sum(r["promedio"] for r in report) / max(len(report), 1), 1
+            )
 
-        return {
-            "fecha_reporte": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "total_alumnos": len(report),
-            "promedio_clase": round(sum(r["promedio"] for r in report) / max(len(report), 1), 1),
-            "alumnos_en_riesgo": [r for r in report if r["semaforo"] == "🔴"],
-            "alumnos_destacados": [r for r in report if r["semaforo"] == "🟢"],
-            "ranking": report,
-        }
+            return {
+                "fecha_reporte":     datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "total_alumnos":     len(report),
+                "promedio_clase":    promedio_clase,
+                "alumnos_en_riesgo": [r for r in report if r["semaforo"] == "🔴"],
+                "alumnos_destacados":[r for r in report if r["semaforo"] == "🟢"],
+                "ranking":           report,
+            }
+        except Exception as e:
+            print(f"Error get_class_report: {e}")
+            return {
+                "fecha_reporte": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "total_alumnos": 0, "promedio_clase": 0,
+                "alumnos_en_riesgo": [], "alumnos_destacados": [], "ranking": [],
+            }
 
     # ── SESIONES CFO ─────────────────────────────────────────────────────────
 
@@ -215,27 +272,35 @@ class StudentMemory:
         response: str,
         tools_used: list = None,
     ) -> bool:
+        """Guarda una sesión del CFO Asistente en Firestore."""
+        if not self.db:
+            return False
         try:
-            self.conn.execute("""
-                INSERT INTO cfo_sessions (user_id, module, query, response, tools_used)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, module, query, response, json.dumps(tools_used or [])))
-            self.conn.commit()
+            self.db.collection("cfo_sessions").add({
+                "user_id":    user_id,
+                "module":     module,
+                "query":      query,
+                "response":   response,
+                "tools_used": json.dumps(tools_used or []),
+                "timestamp":  datetime.now().isoformat(),
+            })
             return True
         except Exception as e:
             print(f"Error save_cfo_session: {e}")
             return False
 
     def get_cfo_history(self, user_id: str, module: str = None, n: int = 20) -> list:
-        query = "SELECT * FROM cfo_sessions WHERE user_id = ?"
-        params = [user_id]
-        if module:
-            query += " AND module = ?"
-            params.append(module)
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(n)
-        rows = self.conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        """Obtiene historial de sesiones CFO."""
+        if not self.db:
+            return []
+        try:
+            query = self.db.collection("cfo_sessions").where("user_id", "==", user_id)
+            if module:
+                query = query.where("module", "==", module)
+            docs = query.order_by("timestamp", direction="DESCENDING").limit(n).get()
+            return [d.to_dict() for d in docs]
+        except Exception:
+            return []
 
     def close(self):
-        self.conn.close()
+        pass
